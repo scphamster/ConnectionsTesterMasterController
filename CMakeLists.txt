@@ -8,4 +8,3 @@ set(USE_COMPILER_EXECUTABLE_AS_LINKER TRUE)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(panels_tester LANGUAGES C CXX)
-
