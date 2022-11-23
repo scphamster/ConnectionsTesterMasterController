@@ -1,4 +1,20 @@
-idf_component_register(SRCS "main.cpp"
+set(COMPONENTS_DIR ../components)
+
+set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
+    ${COMPONENTS_DIR}/cpp_wrappers
+    ${COMPONENTS_DIR}/cpp_wrappers/gpio
+    )
+
+set(CXX_SOURCES main.cpp
+                ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.hpp
+                ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.cpp
+                )
+
+idf_component_register(SRCS ${CXX_SOURCES}
                        INCLUDE_DIRS ".")
 
-set_source_files_properties(main.cpp PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a")
+set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a")
+
+
+
+target_include_directories(${COMPONENT_LIB} PRIVATE ${MY_INCLUDE_DIRS})
