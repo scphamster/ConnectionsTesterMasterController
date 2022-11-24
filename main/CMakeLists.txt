@@ -15,7 +15,7 @@ set(CXX_SOURCES main.cpp
 
 idf_component_register(SRCS ${CXX_SOURCES}
                        INCLUDE_DIRS "."
-                       REQUIRES bt)
-
+#                       REQUIRES bt
+                       )
 set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a")
 target_include_directories(${COMPONENT_LIB} PRIVATE ${MY_INCLUDE_DIRS})
