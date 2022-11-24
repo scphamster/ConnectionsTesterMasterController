@@ -6,14 +6,23 @@
 
 #include "freertos/FreeRTOS.h"
 #include "FreeRTOS/task.h"
+#include "bluetooth/bluetooth.hpp"
 
-extern "C" void
+#include "esp_log.h"
+//#include "esp_bt.h"
+//#include "esp_bt_main.h"
+//#include "esp_gap_bt_api.h"
+//#include "esp_bt_device.h"
+//#include "esp_spp_api.h"
+//#include "spp_task.h"
+
+extern "C"  void
 app_main()
 {
     Pin p1{0, Pin::Direction::Input };
     auto old_lvl = p1.GetLevel();
 
-    while(1) {
+    while(true) {
         auto current_lvl = p1.GetLevel();
 
         if (current_lvl != old_lvl) {
