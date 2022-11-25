@@ -1,28 +1,25 @@
-#include "esp_log.h"
-#include "driver/gpio.h"
 #include <stdio.h>
-// #include "../components/cpp_wrappers/gpio/include/gpio.hpp"
-#include "gpio.hpp"
 
-#include "freertos/FreeRTOS.h"
-#include "FreeRTOS/task.h"
-#include "bluetooth/bluetooth.hpp"
 
+#include "nvs_flash.h"
+#include "esp_logger.hpp"
+#include "task.hpp"
+#include "bluetooth.hpp"
 extern "C"  void
 app_main()
 {
-    Pin p1{0, Pin::Direction::Input };
-    auto old_lvl = p1.GetLevel();
+    auto logger = EspLogger::Get();
 
-    while(true) {
-        auto current_lvl = p1.GetLevel();
+//    esp_err_t ret         = nvs_flash_init();
+//    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+//        ESP_ERROR_CHECK(nvs_flash_erase());
+//        ret = nvs_flash_init();
+//    }
+//    ESP_ERROR_CHECK(ret);
+//
 
-        if (current_lvl != old_lvl) {
-            old_lvl = current_lvl;
-            ESP_LOGI("DBG", "PinLvl Changed, lvl=%i", static_cast<int>(current_lvl));
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
+    Bluetooth::Create(Bluetooth::BasisMode::Classic);
+    auto bl = Bluetooth::Get();
 
-        vTaskDelay(1);
-    }
+
 }
