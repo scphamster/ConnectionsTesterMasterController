@@ -44,6 +44,8 @@ class Bluetooth {
             return;
 
         _this = std::shared_ptr<Bluetooth>{ new Bluetooth{ mode } };
+        _this->sppTask.Start();
+        _this->Initialize();
     }
 
     std::shared_ptr<Bluetooth> static Get()
@@ -57,17 +59,40 @@ class Bluetooth {
 
   protected:
     struct SppTaskMsg {
-        using SppCallbackT = std::function<void(uint16_t, void *)>;
-
         uint16_t           signal;
         esp_spp_cb_event_t event;
-
-        std::unique_ptr<esp_spp_cb_param_t> params;
-        //        esp_spp_cb_param_t                  parameters;
-        //        void                               *parameter;
+        esp_spp_cb_param_t params;
     };
 
     //*************************VVVV Initializers VVVV*********************//
+    void Initialize() noexcept
+    {
+        logger = EspLogger::Get();
+
+        logger->Log("Initializing bluetooth");
+
+        InitMemory();
+        InitController();
+        EnableController();
+        BluedroidInit();
+        BluedroidEnable();
+        logger->Log("Initialization complete, registering callbacks...");
+
+        RegisterGAPCallback();
+        RegisterSPPCallback();
+        logger->Log("Callbacks registered, initializing spp...");
+
+        // VVVV implemented in initialization of task and queue members
+        //        spp_task_task_start_up();
+
+        SPPInit();
+        logger->Log("Spp initialized, setting pin...");
+
+        SetPin();
+        logger->Log("Pin set, bluetooth configurations completed");
+
+        LogOwnAddress();
+    }
     void InitializationFailedCallback() const noexcept { std::terminate(); }
     bool InitMemory() noexcept
     {
@@ -223,14 +248,6 @@ class Bluetooth {
         default: ESP_LOGI(SPP_TAG, "event: %d", event); break;
         }
     }
-    void SppTask() noexcept
-    {
-        while (true) {
-            auto spp_msg = sppQueue.Receive();
-
-            SPPCallbackImpl(spp_msg.event, spp_msg.params.get());   // fixme: do not use .get(), pass unique_ptr itself
-        }
-    }
     void static SPPCallbackImpl(uint16_t e, void *p) noexcept
     {
         esp_spp_cb_event_t  event       = static_cast<esp_spp_cb_event_t>(e);
@@ -291,9 +308,7 @@ class Bluetooth {
         /* To avoid stucking Bluetooth stack, we dispatch the SPP callback event to the other lower priority task */
         //        spp_task_work_dispatch(SPPCallbackImpl, event, param, sizeof(esp_spp_cb_param_t), NULL);
 
-        auto spp_msg = SppTaskMsg{ SPP_TASK_SIG_WORK_DISPATCH,
-                                   event,
-                                   std::make_unique<esp_spp_cb_param_t>(static_cast<esp_spp_cb_param_t>(*param)) };
+        auto spp_msg = SppTaskMsg{ SPP_TASK_SIG_WORK_DISPATCH, event, static_cast<esp_spp_cb_param_t>(*param) };
 
         if (not _this->sppQueue.Send(spp_msg, ProjCfg::SppSendTimeoutMs))
             _this->logger->LogError("spp send timeouted!");
@@ -393,41 +408,23 @@ done:
         logger->Log("Own Address is: " +
                     std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
     }
+
     //********************VVV Tasks VVV****************//
     [[noreturn]] void SPPTask() noexcept
     {
-        while (true) { }
+        while (true) {
+            auto spp_msg = sppQueue.Receive();
+
+            SPPCallbackImpl(spp_msg.event, &spp_msg.params);
+        }
     }
 
   private:
     Bluetooth(BasisMode mode) noexcept
       : basisMode{ mode }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
-      , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp" }
-    {
-        logger = EspLogger::Get();
-
-        InitMemory();
-        InitController();
-        EnableController();
-        BluedroidInit();
-        BluedroidEnable();
-
-        RegisterGAPCallback();
-        RegisterSPPCallback();
-
-        // VVVV implemented in initialization of task and queue members
-        spp_task_task_start_up();
-
-        SPPInit();
-        SetPin();
-        LogOwnAddress();
-        //        std::array<char, 18> bda_str;
-        //
-        //        ESP_LOGI(SPP_TAG,
-        //                 "Own address:[%s]",
-        //                 bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()));
-    }
+      , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp", true }
+    { }
 
     std::shared_ptr<Bluetooth> static _this;
     std::shared_ptr<LoggerT> logger;
