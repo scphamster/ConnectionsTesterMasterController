@@ -39,9 +39,9 @@ class Queue {
         return new_item;
     }
 
-    bool Send(ItemType const &item, TimeT timeout) const noexcept
+    bool Send(ItemType const &item, TimeT timeout_ms) const noexcept
     {
-        return (xQueueSend(handle, static_cast<const void *>(&item), timeout) == pdTRUE) ? true : false;
+        return (xQueueSend(handle, static_cast<const void *>(&item), pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? true : false;
     }
     bool SendImmediate(ItemType const &item) const noexcept { return Send(item, 0); }
     void Flush() noexcept
