@@ -22,6 +22,9 @@ set(CXX_SOURCES
 
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth.cpp
+    ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_gap.hpp
+    ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.hpp
+    ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.cpp
 
 
     ${COMPONENTS_DIR}/cpp_wrappers/logger/esp_logger.hpp
