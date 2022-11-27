@@ -32,19 +32,28 @@ class Bluetooth {
         Classic,
         BTDM_Dual
     };
+    enum class ConnectabilityMode {
+        Connectable,
+        NonConnectable
+    };
+    enum class DiscoverabilityMode {
+        Hidden,
+        Limited,
+        General
+    };
 
-    using LoggerT = EspLogger;
+    using LoggerT     = EspLogger;
+    using DeviceNameT = std::string;
 
     Bluetooth(Bluetooth const &other)            = delete;
     Bluetooth &operator=(Bluetooth const &other) = delete;
 
-    void static Create(BasisMode mode)
+    void static Create(BasisMode mode, DeviceNameT device_name)
     {
         if (_this)
             return;
 
-        _this = std::shared_ptr<Bluetooth>{ new Bluetooth{ mode } };
-        _this->sppTask.Start();
+        _this = std::shared_ptr<Bluetooth>{ new Bluetooth{ mode, device_name } };
         _this->Initialize();
     }
 
@@ -67,8 +76,6 @@ class Bluetooth {
     //*************************VVVV Initializers VVVV*********************//
     void Initialize() noexcept
     {
-        logger = EspLogger::Get();
-
         logger->Log("Initializing bluetooth");
 
         InitMemory();
@@ -167,7 +174,7 @@ class Bluetooth {
         }
 
 #if (CONFIG_BT_SSP_ENABLED == true)
-        //         Set default parameters for Secure Simple Pairing
+        //Set default parameters for Secure Simple Pairing
         esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;
         esp_bt_io_cap_t   iocap      = ESP_BT_IO_CAP_IO;
         esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t));
@@ -175,6 +182,7 @@ class Bluetooth {
 
         return true;
     }
+
     //**************************VVV State Switchers VVV*****************//
     bool BluedroidEnable() noexcept
     {
@@ -200,16 +208,39 @@ class Bluetooth {
     //**************************VVV Bluetooth related callbacks VVV*******************//
     void static GAPCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     {
-        // todo: refactor
+        auto logger = _this->logger;
 
         switch (event) {
+        case ESP_BT_GAP_DISC_RES_EVT:
+            logger->Log("Discovery event! device name: _*NOT IMPLEMENTED*_");
+//
+//              for (int i = 0; i < param->disc_res.num_prop; i++){
+//                if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR
+//                    && get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
+//                    ESP_LOGI(SPP_TAG, "Found peer: %s", peer_bdname);
+//                    //                esp_log_buffer_char(SPP_TAG, peer_bdname, peer_bdname_len);
+//                    if (strlen(remote_device_name) == peer_bdname_len
+//                        && strncmp(peer_bdname, remote_device_name, peer_bdname_len) == 0) {
+//                        memcpy(peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+//                        ESP_LOGI(SPP_TAG, "Found searched device...");
+//
+//                        /* Have found the target peer device, cancel the previous GAP discover procedure. And go on
+//                     * dsicovering the SPP service on the peer device */
+//                        esp_bt_gap_cancel_discovery();
+//                        esp_spp_start_discovery(peer_bd_addr);
+//                    }
+//                }
+//            }
+
+          break;
+
         case ESP_BT_GAP_AUTH_CMPL_EVT: {
             if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-                ESP_LOGI(SPP_TAG, "authentication success: %s", param->auth_cmpl.device_name);
-                esp_log_buffer_hex(SPP_TAG, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
+                logger->Log("Authentication success, paired with device named:" +
+                            std::string{ reinterpret_cast<char *>(param->auth_cmpl.device_name) });
             }
             else {
-                ESP_LOGE(SPP_TAG, "authentication failed, status:%d", param->auth_cmpl.stat);
+                logger->LogError("Authentication failed, status:" + std::to_string(param->auth_cmpl.stat));
             }
             break;
         }
@@ -234,7 +265,11 @@ class Bluetooth {
 
 #if (CONFIG_BT_SSP_ENABLED == true)
         case ESP_BT_GAP_CFM_REQ_EVT:
-            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d", param->cfm_req.num_val);
+            logger->Log("User confirmation request, please compare numeric value:" +
+                        std::to_string(param->cfm_req.num_val));
+
+            //            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d",
+            //            param->cfm_req.num_val);
             esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
             break;
 
@@ -245,62 +280,7 @@ class Bluetooth {
         case ESP_BT_GAP_KEY_REQ_EVT: ESP_LOGI(SPP_TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!"); break;
 #endif
         case ESP_BT_GAP_MODE_CHG_EVT: ESP_LOGI(SPP_TAG, "ESP_BT_GAP_MODE_CHG_EVT mode:%d", param->mode_chg.mode); break;
-        default: ESP_LOGI(SPP_TAG, "event: %d", event); break;
-        }
-    }
-    void static SPPCallbackImpl(uint16_t e, void *p) noexcept
-    {
-        esp_spp_cb_event_t  event       = static_cast<esp_spp_cb_event_t>(e);
-        esp_spp_cb_param_t *param       = static_cast<esp_spp_cb_param_t *>(p);
-        char                bda_str[18] = { 0 };
-
-        switch (event) {
-        case ESP_SPP_INIT_EVT:
-            if (param->init.status == ESP_SPP_SUCCESS) {
-                ESP_LOGI(SPP_TAG, "ESP_SPP_INIT_EVT");
-                /* Enable SPP VFS mode */
-                esp_spp_vfs_register();
-                esp_spp_start_srv(sec_mask, role_slave, 0, SPP_SERVER_NAME);
-            }
-            else {
-                ESP_LOGE(SPP_TAG, "ESP_SPP_INIT_EVT status:%d", param->init.status);
-            }
-            break;
-        case ESP_SPP_DISCOVERY_COMP_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_DISCOVERY_COMP_EVT"); break;
-        case ESP_SPP_OPEN_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_OPEN_EVT"); break;
-        case ESP_SPP_CLOSE_EVT:
-            ESP_LOGI(SPP_TAG,
-                     "ESP_SPP_CLOSE_EVT status:%d handle:%d close_by_remote:%d",
-                     param->close.status,
-                     param->close.handle,
-                     param->close.async);
-            break;
-        case ESP_SPP_START_EVT:
-            if (param->start.status == ESP_SPP_SUCCESS) {
-                ESP_LOGI(SPP_TAG,
-                         "ESP_SPP_START_EVT handle:%d sec_id:%d scn:%d",
-                         param->start.handle,
-                         param->start.sec_id,
-                         param->start.scn);
-                esp_bt_dev_set_device_name(EXAMPLE_DEVICE_NAME);
-                esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-            }
-            else {
-                ESP_LOGE(SPP_TAG, "ESP_SPP_START_EVT status:%d", param->start.status);
-            }
-            break;
-        case ESP_SPP_CL_INIT_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_CL_INIT_EVT"); break;
-        case ESP_SPP_SRV_OPEN_EVT:
-            ESP_LOGI(SPP_TAG,
-                     "ESP_SPP_SRV_OPEN_EVT status:%d handle:%d, rem_bda:[%s]",
-                     param->srv_open.status,
-                     param->srv_open.handle,
-                     bda2str(param->srv_open.rem_bda, bda_str, sizeof(bda_str)));
-            if (param->srv_open.status == ESP_SPP_SUCCESS) {
-                spp_wr_task_start_up(ReadHandle, param->srv_open.fd);
-            }
-            break;
-        default: break;
+        default: logger->Log("Unhandled GAP Event:" + std::to_string(event));
         }
     }
     void static SPPCallbackWrapper(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
@@ -312,30 +292,7 @@ class Bluetooth {
 
         if (not _this->sppQueue.Send(spp_msg, ProjCfg::SppSendTimeoutMs))
             _this->logger->LogError("spp send timeouted!");
-
-        //        spp_task_msg_t msg;
-        //        memset(&msg, 0, sizeof(spp_task_msg_t));
-
-        //        msg.sig   = SPP_TASK_SIG_WORK_DISPATCH;
-        //        msg.event = event;
-        //        msg.cb    = p_cback;
-        //
-        //        if (param_len == 0) {
-        //            return spp_task_send_msg(&msg);
-        //        }
-        //        else if (p_params && param_len > 0) {
-        //            if ((msg.param = malloc(param_len)) != NULL) {
-        //                memcpy(msg.param, p_params, param_len);
-        //                /* check if caller has provided a copy callback to do the deep copy */
-        //                if (p_copy_cback) {
-        //                    p_copy_cback(&msg, msg.param, p_params);
-        //                }
-        //                return spp_task_send_msg(&msg);
-        //            }
-        //        }
-        //
     }
-
     //*********************VVV Helpers VVV******************************//
     [[nodiscard]] esp_bt_mode_t GetEspBtMode() const noexcept
     {
@@ -357,40 +314,35 @@ class Bluetooth {
         sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x", p[0], p[1], p[2], p[3], p[4], p[5]);
         return str;
     }
-    void static ReadHandle(void *param)
+    void ReadHandle()
     {
-        int      size     = 0;
-        int      fd       = (int)param;
-        uint8_t *spp_data = NULL;
+        int  size = 0;
+        auto fd   = readerFileDescriptor;
 
-        spp_data = static_cast<uint8_t *>(malloc(SPP_DATA_LEN));
-        if (!spp_data) {
-            ESP_LOGE(SPP_TAG, "malloc spp_data failed, fd:%d", fd);
-            goto done;
-        }
+        auto data = std::vector<char>{};
+        data.resize(SPP_DATA_LEN);
 
         do {
             /* The frequency of calling this function also limits the speed at which the peer device can send data. */
-            size = read(fd, spp_data, SPP_DATA_LEN);
+            //            logger->Log("Reading file descriptor");
+
+            size = read(fd, data.data(), data.size());
             if (size < 0) {
+                logger->Log("SPP File descriptor read failed");
+                std::terminate();
                 break;
             }
             else if (size == 0) {
                 /* There is no data, retry after 500 ms */
-                vTaskDelay(500 / portTICK_PERIOD_MS);
+                Task::DelayMs(500);
             }
             else {
-                ESP_LOGI(SPP_TAG, "fd = %d data_len = %d", fd, size);
-                esp_log_buffer_hex(SPP_TAG, spp_data, size);
+                logger->Log("Data Arrived! Bytes Num:" + std::to_string(size) + " Data:" + data.data());
+
                 /* To avoid task watchdog */
-                vTaskDelay(10 / portTICK_PERIOD_MS);
+                Task::DelayMs(10);
             }
-        } while (1);
-done:
-        if (spp_data) {
-            free(spp_data);
-        }
-        spp_wr_task_shut_down();
+        } while (true);
     }
     void SetPin() noexcept
     {
@@ -408,30 +360,129 @@ done:
         logger->Log("Own Address is: " +
                     std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
     }
+    void SetDeviceName() noexcept { esp_bt_dev_set_device_name(deviceName.c_str()); }
+
+    //************************VVV SPP Related methods VVV****************//
+    void SPPRegisterVFS() const noexcept { esp_spp_vfs_register(); }
+    void SPPStartServer() noexcept
+    {
+        if (sppServerStarted)
+            return;
+
+        // todo: make configurable
+        esp_spp_start_srv(sec_mask, role_slave, 0, SPP_SERVER_NAME);
+
+        sppServerStarted = true;
+    }
+
+    //***************************VVV GAP Related methods VVV****************//
+    void SetGAPScanMode(ConnectabilityMode connectability, DiscoverabilityMode discoverability) noexcept
+    {
+        esp_bt_connection_mode_t connection_mode;
+        esp_bt_discovery_mode_t  discovery_mode;
+
+        switch (connectability) {
+        case ConnectabilityMode::Connectable: connection_mode = ESP_BT_CONNECTABLE; break;
+        case ConnectabilityMode::NonConnectable: connection_mode = ESP_BT_NON_CONNECTABLE; break;
+        }
+
+        switch (discoverability) {
+        case DiscoverabilityMode::Hidden: discovery_mode = ESP_BT_NON_DISCOVERABLE; break;
+        case DiscoverabilityMode::Limited: discovery_mode = ESP_BT_LIMITED_DISCOVERABLE; break;
+        case DiscoverabilityMode::General: discovery_mode = ESP_BT_GENERAL_DISCOVERABLE; break;
+        }
+
+        esp_bt_gap_set_scan_mode(connection_mode, discovery_mode);
+    }
 
     //********************VVV Tasks VVV****************//
     [[noreturn]] void SPPTask() noexcept
     {
+        std::array<char, 18> bda_str{};
+
         while (true) {
             auto spp_msg = sppQueue.Receive();
 
-            SPPCallbackImpl(spp_msg.event, &spp_msg.params);
+            auto param = spp_msg.params;
+
+            switch (spp_msg.event) {
+            case ESP_SPP_INIT_EVT:
+                if (param.init.status == ESP_SPP_SUCCESS) {
+                    logger->Log("Spp Initialize event");
+
+                    SPPRegisterVFS();
+                    SPPStartServer();
+                }
+                else {
+                    logger->LogError("SPP Init failed, error code:" + std::to_string(spp_msg.params.init.status));
+                }
+                break;
+            case ESP_SPP_DISCOVERY_COMP_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_DISCOVERY_COMP_EVT"); break;
+            case ESP_SPP_OPEN_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_OPEN_EVT"); break;
+            case ESP_SPP_CLOSE_EVT:
+                ESP_LOGI(SPP_TAG,
+                         "ESP_SPP_CLOSE_EVT status:%d handle:%d close_by_remote:%d",
+                         param.close.status,
+                         param.close.handle,
+                         param.close.async);
+                break;
+            case ESP_SPP_START_EVT:
+                if (param.start.status == ESP_SPP_SUCCESS) {
+                    logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) +
+                                " security id:" + std::to_string(param.start.sec_id) +
+                                " server channel:" + std::to_string(param.start.scn));
+
+                    SetDeviceName();
+                    SetGAPScanMode(ConnectabilityMode::Connectable, DiscoverabilityMode::General);
+                }
+                else {
+                    logger->LogError("SPP start event failed, status:" + std::to_string(param.start.status));
+                }
+                break;
+            case ESP_SPP_CL_INIT_EVT: logger->Log("Client initiated connection!"); break;
+            case ESP_SPP_SRV_OPEN_EVT:
+                logger->Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
+                            " Handle:" + std::to_string(param.srv_open.handle) +
+                            " rem bda:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
+
+                if (param.srv_open.status == ESP_SPP_SUCCESS) {
+                    //                    spp_wr_task_start_up(ReadHandle, param.srv_open.fd);
+                    readerFileDescriptor = param.srv_open.fd;
+                    sppReaderTask.Start();
+                }
+                break;
+            default: logger->Log("Unhandled SPP Event:" + std::to_string(spp_msg.event));
+            }
         }
     }
 
   private:
-    Bluetooth(BasisMode mode) noexcept
-      : basisMode{ mode }
+    Bluetooth(BasisMode mode, DeviceNameT new_device_name) noexcept
+      : logger{ EspLogger::Get() }
+      , basisMode{ mode }
+      , deviceName{ new_device_name }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
       , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp", true }
-    { }
+      , sppReaderTask{ [this]() { ReadHandle(); },
+                       ProjCfg::SppReaderTaskStackSize,
+                       ProjCfg::SppReaderTaskPrio,
+                       "spp reader",
+                       true }
+    {
+        sppTask.Start();
+    }
 
     std::shared_ptr<Bluetooth> static _this;
     std::shared_ptr<LoggerT> logger;
     BasisMode                basisMode;
+    DeviceNameT              deviceName;
+    Queue<SppTaskMsg>        sppQueue;
+    Task                     sppTask;
+    Task                     sppReaderTask;
+    bool                     sppServerStarted{ false };
 
-    Queue<SppTaskMsg> sppQueue;
-    Task              sppTask;
+    // todo: collect spp related data to single struct
+    int readerFileDescriptor{ -1 };
 
     esp_spp_mode_t static constexpr esp_spp_mode = ESP_SPP_MODE_VFS;   // todo: wtf is this
     esp_spp_sec_t static constexpr sec_mask      = ESP_SPP_SEC_AUTHENTICATE;

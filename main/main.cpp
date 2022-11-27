@@ -30,7 +30,7 @@ app_main()
 
     auto logger = EspLogger::Get();
 
-    Bluetooth::Create(Bluetooth::BasisMode::Classic);
+    Bluetooth::Create(Bluetooth::BasisMode::Classic, "hamster bluetooth");
     logger->Log("Bluetooth creation completed");
     auto bl = Bluetooth::Get();
 
