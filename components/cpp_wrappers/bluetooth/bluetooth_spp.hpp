@@ -221,10 +221,12 @@ class BluetoothSPP {
             auto           str   = std::string{ "DUPA" };
             const uint8_t *u8str = reinterpret_cast<const uint8_t *>(str.c_str());
 
-            InvokeCallbackForEvent(static_cast<Event>(spp_msg.event));
+            auto event = static_cast<Event>(spp_msg.event);
 
-            switch (spp_msg.event) {
-            case ESP_SPP_INIT_EVT:
+            InvokeCallbackForEvent(event);
+
+            switch (event) {
+            case Event::Initialized:
                 if (param.init.status == ESP_SPP_SUCCESS) {
                     logger->Log("Spp Initialize event");
 
@@ -235,20 +237,20 @@ class BluetoothSPP {
                     logger->LogError("SPP Init failed, error code:" + std::to_string(spp_msg.params.init.status));
                 }
                 break;
-            case ESP_SPP_DISCOVERY_COMP_EVT: ESP_LOGI(SPP_TAG, "ESP_SPP_DISCOVERY_COMP_EVT"); break;
-            case ESP_SPP_OPEN_EVT:
+            case Event::DiscoveryCompleted: ESP_LOGI(SPP_TAG, "ESP_SPP_DISCOVERY_COMP_EVT"); break;
+            case Event::Open:
                 logger->Log("SPP Open Event! Writing Some Data...");
 
                 esp_spp_write(param.open.handle, 5, const_cast<uint8_t *>(u8str));
                 break;
-            case ESP_SPP_CLOSE_EVT:
+            case Event::Close:
                 ESP_LOGI(SPP_TAG,
                          "ESP_SPP_CLOSE_EVT status:%d handle:%d close_by_remote:%d",
                          param.close.status,
                          param.close.handle,
                          param.close.async);
                 break;
-            case ESP_SPP_START_EVT:
+            case Event::Start:
                 if (param.start.status == ESP_SPP_SUCCESS) {
                     logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) +
                                 " security id:" + std::to_string(param.start.sec_id) +
@@ -258,8 +260,8 @@ class BluetoothSPP {
                     logger->LogError("SPP start event failed, status:" + std::to_string(param.start.status));
                 }
                 break;
-            case ESP_SPP_CL_INIT_EVT: logger->Log("Client initiated connection!"); break;
-            case ESP_SPP_SRV_OPEN_EVT:
+            case Event::ClientInitiated: logger->Log("Client initiated connection!"); break;
+            case Event::ServerConnectionOpen:
                 logger->Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
                             " Handle:" + std::to_string(param.srv_open.handle) +
                             " rem bda:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));

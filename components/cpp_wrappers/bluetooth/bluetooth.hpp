@@ -41,6 +41,9 @@ class Bluetooth {
 
     Bluetooth(Bluetooth const &other)            = delete;
     Bluetooth &operator=(Bluetooth const &other) = delete;
+    Bluetooth(Bluetooth &&other)                 = default;
+    Bluetooth &operator=(Bluetooth &&rhs)        = default;
+
     void static Create(BasisMode mode, DeviceNameT device_name)
     {
         if (_this)
@@ -74,9 +77,6 @@ class Bluetooth {
         gapDriver->RegisterGAPCallback();
         sppDriver->RegisterSPPCallback();
         logger->Log("Callbacks registered, initializing spp...");
-
-        // VVVV implemented in initialization of task and queue members
-        //        spp_task_task_start_up();
 
         sppDriver->Init();
 #if (CONFIG_BT_SSP_ENABLED == true)
@@ -183,7 +183,8 @@ class Bluetooth {
     {
         sppDriver->SetEventCallback(BluetoothSPP::Event::Start, [this]() {
             SetDeviceName(deviceName);
-            gapDriver->SetGAPScanMode(BluetoothGAP::ConnectabilityMode::Connectable, BluetoothGAP::DiscoverabilityMode::General);
+            gapDriver->SetGAPScanMode(BluetoothGAP::ConnectabilityMode::Connectable,
+                                      BluetoothGAP::DiscoverabilityMode::General);
         });
     }
 
@@ -201,5 +202,5 @@ class Bluetooth {
     esp_spp_sec_t static constexpr sec_mask      = ESP_SPP_SEC_AUTHENTICATE;
     esp_spp_role_t static constexpr role_slave   = ESP_SPP_ROLE_SLAVE;
 
-    auto static constexpr SPP_DATA_LEN        = 100;
+    auto static constexpr SPP_DATA_LEN = 100;
 };
