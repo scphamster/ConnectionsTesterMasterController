@@ -169,6 +169,14 @@ class Bluetooth {
 
     void SetDeviceName(std::string new_name) noexcept { esp_bt_dev_set_device_name(new_name.c_str()); }
 
+    [[noreturn]] void RSSITask() noexcept {
+        auto some_str      = std::string{ "respond\n" };
+        std::array<char, 8U> data_for_file {some_str.c_str()};
+        while (true) {
+            sppDriver->Write<8>(data_for_file);
+        }
+    }
+
   private:
     Bluetooth(BasisMode mode, DeviceNameT new_device_name) noexcept
       : logger{ EspLogger::Get() }
@@ -179,7 +187,7 @@ class Bluetooth {
                                         BluetoothSPP::SecurityMode::Authenticate,
                                         BluetoothSPP::Role::Slave,
                                         "hamster test",
-                                        "hamster server") }
+                                        "hamster server") }, rssiIndicatorTask()
     {
         sppDriver->SetEventCallback(BluetoothSPP::Event::Start, [this]() {
             SetDeviceName(deviceName);
@@ -195,6 +203,8 @@ class Bluetooth {
 
     std::shared_ptr<BluetoothGAP> gapDriver;
     std::shared_ptr<BluetoothSPP> sppDriver;
+
+    Task rssiIndicatorTask;
 
     // todo: collect spp related data to single struct
 

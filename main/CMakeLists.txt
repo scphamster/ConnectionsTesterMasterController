@@ -55,6 +55,6 @@ idf_component_register(SRCS ${CXX_SOURCES} ${C_SOURCES}
 
 target_include_directories(${COMPONENT_LIB} PRIVATE ${MY_INCLUDE_DIRS})
 
-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -O3")
-set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -std=gnu11 -O3")
+set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast")
+set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")
 

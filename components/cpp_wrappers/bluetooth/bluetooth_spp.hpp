@@ -4,6 +4,7 @@
 #include <map>
 #include <functional>
 #include <utility>
+#include <mutex>
 
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -29,7 +30,8 @@ class Bluetooth;
 
 class BluetoothSPP {
   public:
-    using EventCallbackT = std::function<void()>;
+    using EventCallbackT    = std::function<void()>;
+    using ConnectionHandleT = uint32_t;
     enum class Event {
         Initialized             = 0,
         Uninitialized           = 1,
@@ -91,7 +93,9 @@ class BluetoothSPP {
     {
         eventCallbacks[for_event] = std::move(callback);
     }
-
+    void SetStreamBufferToTransmitter(std::shared_ptr<StreamBuffer<char>> new_sb) noexcept {
+        streamBufferToTransmitter = new_sb;
+    }
     // todo: make protected
     [[nodiscard]] auto EnumToEspNativeType(DataManagementMode mode) noexcept { return static_cast<esp_spp_mode_t>(mode); }
     [[nodiscard]] auto EnumToEspNativeType(Event event) noexcept { return static_cast<esp_spp_cb_event_t>(event); }
@@ -131,7 +135,11 @@ class BluetoothSPP {
                     std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
     }
     void StartTasks() noexcept { sppTask.Start(); }
-
+    template<size_t NumberOfBytes>
+    void Write(std::array<char, NumberOfBytes> data) noexcept {
+        std::lock_guard<Mutex>{fileMutex};
+        write(readerFileDescriptor, data.data(), data.size() * sizeof(data.at(0)));
+    }
   protected:
     struct SppTaskMsg {
         uint16_t           signal;
@@ -167,43 +175,58 @@ class BluetoothSPP {
         if (not _this->sppQueue.Send(spp_msg, ProjCfg::SppSendTimeoutMs))
             _this->logger->LogError("spp send timeouted!");
     }
-
-    //************************VVV SPP Related methods VVV****************//
     void RegisterVFS() const noexcept { esp_spp_vfs_register(); }
     void StartServer() noexcept
     {
-        if (sppServerStarted)
+        if (serverStarted)
             return;
 
         esp_spp_start_srv(EnumToEspNativeType(securityMode), EnumToEspNativeType(role), 0, serverName.c_str());
 
-        sppServerStarted = true;
+        serverStarted = true;
     }
 
+    //****************************** TASKS *************************//
+    [[noreturn]] void WriterTask()
+    {
+        auto some_str      = std::string{ "respond\n" };
+        auto data_for_file = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(some_str.c_str()));
+        while (true) {
+
+            {
+                std::lock_guard<Mutex>{ fileMutex };
+                auto writen_bytes_number = write(readerFileDescriptor, data_for_file, some_str.size());
+                logger->Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
+            }
+
+            Task::DelayMs(500);
+        }
+    }
     [[noreturn]] void ReaderTask()
     {
-        int  size = 0;
-        auto fd   = readerFileDescriptor;
-
         auto data = std::vector<char>{};
         data.resize(SPP_DATA_LEN);
+        int bytes_read{ 0 };
 
         do {
-            /* The frequency of calling this function also limits the speed at which the peer device can send data. */
-            //            logger->Log("Reading file descriptor");
+            {
+                std::lock_guard<Mutex>{ fileMutex };
+                bytes_read = read(readerFileDescriptor, data.data(), data.size());
+            }
 
-            size = read(fd, data.data(), data.size());
-            if (size < 0) {
+            if (bytes_read < 0) {
                 logger->Log("SPP File descriptor read failed");
                 std::terminate();
                 break;
             }
-            else if (size == 0) {
+            else if (bytes_read == 0) {
                 /* There is no data, retry after 500 ms */
                 Task::DelayMs(500);
             }
             else {
-                logger->Log("Data Arrived! Bytes Num:" + std::to_string(size) + " Data:" + data.data());
+                logger->Log("SPP: New data arrived:" + std::string{ data.data() });
+
+                logger->Log("SPP: Writing some data to file");
 
                 /* To avoid task watchdog */
                 Task::DelayMs(10);
@@ -217,10 +240,7 @@ class BluetoothSPP {
         while (true) {
             auto spp_msg = sppQueue.Receive();
 
-            auto           param = spp_msg.params;
-            auto           str   = std::string{ "DUPA" };
-            const uint8_t *u8str = reinterpret_cast<const uint8_t *>(str.c_str());
-
+            auto param = spp_msg.params;
             auto event = static_cast<Event>(spp_msg.event);
 
             InvokeCallbackForEvent(event);
@@ -237,24 +257,16 @@ class BluetoothSPP {
                     logger->LogError("SPP Init failed, error code:" + std::to_string(spp_msg.params.init.status));
                 }
                 break;
-            case Event::DiscoveryCompleted: ESP_LOGI(SPP_TAG, "ESP_SPP_DISCOVERY_COMP_EVT"); break;
-            case Event::Open:
-                logger->Log("SPP Open Event! Writing Some Data...");
-
-                esp_spp_write(param.open.handle, 5, const_cast<uint8_t *>(u8str));
-                break;
-            case Event::Close:
-                ESP_LOGI(SPP_TAG,
-                         "ESP_SPP_CLOSE_EVT status:%d handle:%d close_by_remote:%d",
-                         param.close.status,
-                         param.close.handle,
-                         param.close.async);
-                break;
+            case Event::DiscoveryCompleted: logger->Log("SPP: Discovery complete event!"); break;
+            case Event::Open: logger->Log("SPP Open Event"); break;
+            case Event::Close: logger->Log("SPP Close event"); break;
             case Event::Start:
                 if (param.start.status == ESP_SPP_SUCCESS) {
                     logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) +
                                 " security id:" + std::to_string(param.start.sec_id) +
                                 " server channel:" + std::to_string(param.start.scn));
+
+                    connectionHandle = param.start.handle;
                 }
                 else {
                     logger->LogError("SPP start event failed, status:" + std::to_string(param.start.status));
@@ -264,11 +276,12 @@ class BluetoothSPP {
             case Event::ServerConnectionOpen:
                 logger->Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
                             " Handle:" + std::to_string(param.srv_open.handle) +
-                            " rem bda:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
+                            " Peer address:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
 
                 if (param.srv_open.status == ESP_SPP_SUCCESS) {
                     readerFileDescriptor = param.srv_open.fd;
                     sppReaderTask.Start();
+//                    writerTask.Start();
                 }
                 break;
             default: logger->Log("Unhandled SPP Event:" + std::to_string(spp_msg.event));
@@ -292,6 +305,11 @@ class BluetoothSPP {
                        ProjCfg::SppReaderTaskPrio,
                        "spp reader",
                        true }
+      , writerTask([this]() { WriterTask(); },
+                   ProjCfg::SppWriterTaskStackSize,
+                   ProjCfg::SppWriterTaskPrio,
+                   "spp writer",
+                   true)
       , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp", true }
     { }
 
@@ -306,12 +324,17 @@ class BluetoothSPP {
     std::shared_ptr<EspLogger> logger;
     Queue<SppTaskMsg>          sppQueue;
     Task                       sppReaderTask;
+    Task                       writerTask;
     Task                       sppTask;
 
-    //    std::shared_ptr<BluetoothGAP> gapDriver;
+    mutable Mutex fileMutex;
+
+    ConnectionHandleT connectionHandle;
+
+    std::shared_ptr<StreamBuffer<char>> streamBufferToTransmitter;
 
     int  readerFileDescriptor{ -1 };
-    bool sppServerStarted{ false };
+    bool serverStarted{ false };
 
     std::map<Event, EventCallbackT> eventCallbacks;
 

@@ -109,22 +109,22 @@ class BluetoothGAP {
 
 #if (CONFIG_BT_SSP_ENABLED == true)
         case Event::SSPUserConfirmationRequest:
-            logger->Log("User confirmation request, please compare numeric value:" +
+            logger->Log("GAP: User confirmation request, please compare numeric value:" +
                         std::to_string(param->cfm_req.num_val));
-
-            //            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d",
-            //            param->cfm_req.num_val);
             esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
             break;
 
         case Event::SSPPasskeyNotification:
-            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_KEY_NOTIF_EVT passkey:%d", param->key_notif.passkey);
+            logger->Log("GAP: Passkey notification event! Passkey:" + std::to_string(param->key_notif.passkey));
             break;
 
-        case Event::SSPPasskeyRequest: ESP_LOGI(SPP_TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!"); break;
+        case Event::SSPPasskeyRequest: logger->Log("GAP: Passkey request, please enter key"); break;
 #endif
-        case Event::ModeChange: ESP_LOGI(SPP_TAG, "ESP_BT_GAP_MODE_CHG_EVT mode:%d", param->mode_chg.mode); break;
-        default: logger->Log("Unhandled GAP Event:" + std::to_string(_event));
+        case Event::ModeChange:
+            logger->Log("GAP: Mode Change event! New mode:" + std::to_string(param->mode_chg.mode));
+            break;
+
+        default: logger->Log("GAP: Unhandled event:" + std::to_string(_event));
         }
     }
     void static ConfigureSecurity() noexcept

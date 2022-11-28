@@ -9,6 +9,8 @@ enum BluetoothCfg {
     SppSendTimeoutMs       = 10,
     SppReaderTaskStackSize = 2048,
     SppReaderTaskPrio      = 5,
+    SppWriterTaskStackSize = 3048,
+    SppWriterTaskPrio      = 4,
 };
 
 enum class Tasks {
