@@ -181,7 +181,6 @@ class Bluetooth {
                                         "hamster test",
                                         "hamster server") }
     {
-        sppDriver->SetGapDriver(gapDriver);
         sppDriver->SetEventCallback(BluetoothSPP::Event::Start, [this]() {
             SetDeviceName(deviceName);
             gapDriver->SetGAPScanMode(BluetoothGAP::ConnectabilityMode::Connectable, BluetoothGAP::DiscoverabilityMode::General);
@@ -196,8 +195,6 @@ class Bluetooth {
     std::shared_ptr<BluetoothGAP> gapDriver;
     std::shared_ptr<BluetoothSPP> sppDriver;
 
-    // todo: cleanup:
-
     // todo: collect spp related data to single struct
 
     esp_spp_mode_t static constexpr esp_spp_mode = ESP_SPP_MODE_VFS;   // todo: wtf is this
@@ -205,6 +202,4 @@ class Bluetooth {
     esp_spp_role_t static constexpr role_slave   = ESP_SPP_ROLE_SLAVE;
 
     auto static constexpr SPP_DATA_LEN        = 100;
-    auto static constexpr SPP_SERVER_NAME     = "SPP_SERVER";
-    auto static constexpr EXAMPLE_DEVICE_NAME = "ESP_SPP_ACCEPTOR";
 };

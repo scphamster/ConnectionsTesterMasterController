@@ -77,30 +77,7 @@ class BluetoothGAP {
         auto event = static_cast<Event>(_event);
 
         switch (event) {
-        case Event::DiscoveryCompleted:
-            logger->Log("Discovery event! device name: _*NOT IMPLEMENTED*_");
-            //
-            //              for (int i = 0; i < param->disc_res.num_prop; i++){
-            //                if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR
-            //                    && get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
-            //                    ESP_LOGI(SPP_TAG, "Found peer: %s", peer_bdname);
-            //                    //                esp_log_buffer_char(SPP_TAG, peer_bdname, peer_bdname_len);
-            //                    if (strlen(remote_device_name) == peer_bdname_len
-            //                        && strncmp(peer_bdname, remote_device_name, peer_bdname_len) == 0) {
-            //                        memcpy(peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
-            //                        ESP_LOGI(SPP_TAG, "Found searched device...");
-            //
-            //                        /* Have found the target peer device, cancel the previous GAP discover procedure.
-            //                        And go on
-            //                     * dsicovering the SPP service on the peer device */
-            //                        esp_bt_gap_cancel_discovery();
-            //                        esp_spp_start_discovery(peer_bd_addr);
-            //                    }
-            //                }
-            //            }
-
-            break;
-
+        case Event::DiscoveryCompleted: logger->Log("Discovery event! device name: _*NOT IMPLEMENTED*_"); break;
         case Event::AuthenticationCompleted: {
             if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
                 logger->Log("Authentication success, paired with device named:" +
@@ -132,7 +109,8 @@ class BluetoothGAP {
 
 #if (CONFIG_BT_SSP_ENABLED == true)
         case Event::SSPUserConfirmationRequest:
-            logger->Log("User confirmation request, please compare numeric value:" + std::to_string(param->cfm_req.num_val));
+            logger->Log("User confirmation request, please compare numeric value:" +
+                        std::to_string(param->cfm_req.num_val));
 
             //            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d",
             //            param->cfm_req.num_val);
@@ -202,6 +180,5 @@ class BluetoothGAP {
 
   private:
     BluetoothGAP() = default;
-
     std::shared_ptr<BluetoothGAP> static _this;
 };
