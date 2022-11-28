@@ -1,5 +1,4 @@
 set(COMPONENTS_DIR ../components)
-
 set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
     ${COMPONENTS_DIR}/cpp_wrappers
     ${COMPONENTS_DIR}/cpp_wrappers/gpio
@@ -22,7 +21,10 @@ set(CXX_SOURCES
 
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth.cpp
+
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_gap.hpp
+    ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_gap.cpp
+
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.cpp
 

@@ -53,6 +53,17 @@ class BluetoothGAP {
         General
     };
 
+    BluetoothGAP(BluetoothGAP const &other)          = delete;
+    BluetoothGAP &operator=(BluetoothGAP const &rhs) = delete;
+
+    std::shared_ptr<BluetoothGAP> static Get() noexcept
+    {
+        if (_this)
+            return _this;
+
+        return _this = std::shared_ptr<BluetoothGAP>{ new BluetoothGAP };
+    }
+
     static auto EnumClassToEspNativeType(Event event) noexcept { return static_cast<esp_bt_gap_cb_event_t>(event); }
     static auto EnumClassToEspNativeType(DeviceProperty device_property) noexcept
     {
@@ -121,8 +132,7 @@ class BluetoothGAP {
 
 #if (CONFIG_BT_SSP_ENABLED == true)
         case Event::SSPUserConfirmationRequest:
-            logger->Log("User confirmation request, please compare numeric value:" +
-                        std::to_string(param->cfm_req.num_val));
+            logger->Log("User confirmation request, please compare numeric value:" + std::to_string(param->cfm_req.num_val));
 
             //            ESP_LOGI(SPP_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d",
             //            param->cfm_req.num_val);
@@ -139,7 +149,8 @@ class BluetoothGAP {
         default: logger->Log("Unhandled GAP Event:" + std::to_string(_event));
         }
     }
-    void static ConfigureSecurity() noexcept {
+    void static ConfigureSecurity() noexcept
+    {
         // Set default parameters for Secure Simple Pairing
         esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;
         esp_bt_io_cap_t   iocap      = ESP_BT_IO_CAP_IO;
@@ -188,4 +199,9 @@ class BluetoothGAP {
 
   protected:
     void InitializationFailedCallback() const noexcept { std::terminate(); }
+
+  private:
+    BluetoothGAP() = default;
+
+    std::shared_ptr<BluetoothGAP> static _this;
 };

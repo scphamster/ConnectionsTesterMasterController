@@ -1,6 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <map>
+#include <functional>
+#include <utility>
 
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -13,9 +16,21 @@
 #include "queue.hpp"
 #include "project_configs.hpp"
 
+#include "bluetooth_gap.hpp"
+
+class Bluetooth;
+
+// todo: to be removed:
+#include "spp_task.h"
+
+#ifndef SPP_TAG
+#define SPP_TAG "SPP_ACCEPTOR_DEMO"
+#endif
+
 class BluetoothSPP {
   public:
-    enum class SppEvent {
+    using EventCallbackT = std::function<void()>;
+    enum class Event {
         Initialized             = 0,
         Uninitialized           = 1,
         DiscoveryCompleted      = 8,
@@ -29,13 +44,62 @@ class BluetoothSPP {
         ServerConnectionOpen    = 34,
         ServerStop              = 35,
     };
-
-    bool static RegisterSPPCallback() noexcept
+    enum class DataManagementMode {
+        ByCallback = 0,
+        ByVFS
+    };
+    enum class SecurityMode {
+        None         = 0x0000,
+        Authorize    = 0x0001,
+        Authenticate = 0x0012,
+        Encrypt      = 0x0024,
+        Mode4Level4  = 0x0040,
+        MITM         = 0x3000,
+        In16Digits   = 0x4000
+    };
+    enum class Role {
+        Master = 0,
+        Slave
+    };
+    std::shared_ptr<BluetoothSPP> static Create(DataManagementMode mode,
+                                                SecurityMode       security,
+                                                Role               new_role,
+                                                std::string        device_name,
+                                                std::string        server_name)
     {
-        auto logger = EspLogger::Get();
+        if (_this)
+            std::terminate();
 
-        if (esp_spp_register_callback(
-              [](esp_spp_cb_event_t event, esp_spp_cb_param_t *param) { SPPCallback(event, param); }) != ESP_OK) {
+        _this = std::shared_ptr<BluetoothSPP>{
+            new BluetoothSPP{ mode, security, new_role, std::move(device_name), std::move(server_name) }
+        };
+
+        return Get();
+    }
+    std::shared_ptr<BluetoothSPP> static Get() noexcept
+    {
+        if (_this)
+            return _this;
+        else
+            std::terminate();
+    }
+
+    BluetoothSPP(BluetoothSPP const &other)         = delete;
+    BluetoothSPP &operator=(BluetoothSPP const &rh) = delete;
+
+    void SetGapDriver(std::shared_ptr<BluetoothGAP> gap_driver) noexcept { gapDriver = gap_driver; }
+    void SetEventCallback(Event for_event, EventCallbackT &&callback) noexcept { eventCallbacks[for_event] = std::move(callback); }
+
+    // todo: make protected
+    [[nodiscard]] auto EnumToEspNativeType(DataManagementMode mode) noexcept { return static_cast<esp_spp_mode_t>(mode); }
+    [[nodiscard]] auto EnumToEspNativeType(Event event) noexcept { return static_cast<esp_spp_cb_event_t>(event); }
+    [[nodiscard]] auto EnumToEspNativeType(SecurityMode security) noexcept { return static_cast<esp_spp_sec_t>(security); }
+    [[nodiscard]] auto EnumToEspNativeType(Role role) noexcept { return static_cast<esp_spp_role_t>(role); }
+
+    bool RegisterSPPCallback() noexcept
+    {
+        if (esp_spp_register_callback([](esp_spp_cb_event_t event, esp_spp_cb_param_t *param) { MainCallback(event, param); }) !=
+            ESP_OK) {
             logger->LogError("spp callback registration failed");
 
             InitializationFailedCallback();
@@ -44,7 +108,28 @@ class BluetoothSPP {
 
         return true;
     }
+    bool Init() noexcept
+    {
+        if (esp_spp_init(EnumToEspNativeType(dataManagementMode)) != ESP_OK) {
+            logger->LogError("SPP Init failed");
 
+            InitializationFailedCallback();
+            return false;
+        }
+
+        return true;
+    }
+    void LogOwnAddress() const noexcept
+    {
+        std::array<char, 18> bda_str;
+        logger->Log("Own Address is: " +
+                    std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
+    }
+
+    void StartTasks() noexcept {
+        sppTask.Start();
+        sppReaderTask.Start();
+    }
   protected:
     struct SppTaskMsg {
         uint16_t           signal;
@@ -52,24 +137,24 @@ class BluetoothSPP {
         esp_spp_cb_param_t params;
     };
 
-    bool SPPInit() noexcept
+    //************************** HELPERS **************************//
+    [[nodiscard]] char static *bda2str(uint8_t *bda, char *str, size_t size)
     {
-        if (esp_spp_init(esp_spp_mode) != ESP_OK) {
-            logger->LogError("SPP Init failed");
-
-            InitializationFailedCallback();
-            return false;
+        if (bda == NULL || str == NULL || size < 18) {
+            return NULL;
         }
 
-#if (CONFIG_BT_SSP_ENABLED == true)
-        gapDriver.ConfigureSecurity();
-#endif
-        return true;
+        uint8_t *p = bda;
+        sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x", p[0], p[1], p[2], p[3], p[4], p[5]);
+        return str;
     }
-
     void InitializationFailedCallback() const noexcept { std::terminate(); }
-
-    void static SPPCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
+    void InvokeCallbackForEvent(Event event) noexcept {
+        if (eventCallbacks.find(event) != eventCallbacks.end()) {
+            eventCallbacks.at(event)();
+        }
+    }
+    void static MainCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     {
         /* To avoid stucking Bluetooth stack, we dispatch the SPP callback event to the other lower priority task */
         //        spp_task_work_dispatch(SPPCallbackImpl, event, param, sizeof(esp_spp_cb_param_t), NULL);
@@ -80,8 +165,19 @@ class BluetoothSPP {
             _this->logger->LogError("spp send timeouted!");
     }
 
+    //************************VVV SPP Related methods VVV****************//
+    void RegisterVFS() const noexcept { esp_spp_vfs_register(); }
+    void StartServer() noexcept
+    {
+        if (sppServerStarted)
+            return;
 
-    void ReadHandle()
+        esp_spp_start_srv(EnumToEspNativeType(securityMode), EnumToEspNativeType(role), 0, serverName.c_str());
+
+        sppServerStarted = true;
+    }
+
+    [[noreturn]] void ReaderTask()
     {
         int  size = 0;
         auto fd   = readerFileDescriptor;
@@ -111,7 +207,6 @@ class BluetoothSPP {
             }
         } while (true);
     }
-
     [[noreturn]] void SPPTask() noexcept
     {
         std::array<char, 18> bda_str{};
@@ -122,13 +217,16 @@ class BluetoothSPP {
             auto           param = spp_msg.params;
             auto           str   = std::string{ "DUPA" };
             const uint8_t *u8str = reinterpret_cast<const uint8_t *>(str.c_str());
+
+            InvokeCallbackForEvent(static_cast<Event>(spp_msg.event));
+
             switch (spp_msg.event) {
             case ESP_SPP_INIT_EVT:
                 if (param.init.status == ESP_SPP_SUCCESS) {
                     logger->Log("Spp Initialize event");
 
-                    SPPRegisterVFS();
-                    SPPStartServer();
+                    RegisterVFS();
+                    StartServer();
                 }
                 else {
                     logger->LogError("SPP Init failed, error code:" + std::to_string(spp_msg.params.init.status));
@@ -149,12 +247,8 @@ class BluetoothSPP {
                 break;
             case ESP_SPP_START_EVT:
                 if (param.start.status == ESP_SPP_SUCCESS) {
-                    logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) +
-                                " security id:" + std::to_string(param.start.sec_id) +
-                                " server channel:" + std::to_string(param.start.scn));
-
-                    SetDeviceName();
-                    gapDriver.SetGAPScanMode(ConnectabilityMode::Connectable, DiscoverabilityMode::General);
+                    logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) + " security id:" +
+                                std::to_string(param.start.sec_id) + " server channel:" + std::to_string(param.start.scn));
                 }
                 else {
                     logger->LogError("SPP start event failed, status:" + std::to_string(param.start.status));
@@ -167,7 +261,7 @@ class BluetoothSPP {
                             " rem bda:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
 
                 if (param.srv_open.status == ESP_SPP_SUCCESS) {
-                    //                    spp_wr_task_start_up(ReadHandle, param.srv_open.fd);
+                    //                    spp_wr_task_start_up(ReaderTask, param.srv_open.fd);
                     readerFileDescriptor = param.srv_open.fd;
                     sppReaderTask.Start();
                 }
@@ -178,23 +272,37 @@ class BluetoothSPP {
     }
 
   private:
-    BluetoothSPP()
-      : logger{ EspLogger::Get() }
+    BluetoothSPP(DataManagementMode mode, SecurityMode security, Role new_role, std::string device_name, std::string server_name)
+      : dataManagementMode{ mode }
+      , securityMode{ security }
+      , role{ new_role }
+      , logger{ EspLogger::Get() }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
-      , sppReaderTask{ [this]() { ReadHandle(); },
-                       ProjCfg::SppReaderTaskStackSize,
-                       ProjCfg::SppReaderTaskPrio,
-                       "spp reader",
-                       true }
+      , sppReaderTask{ [this]() { ReaderTask(); }, ProjCfg::SppReaderTaskStackSize, ProjCfg::SppReaderTaskPrio, "spp reader", true }
       , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp", true }
     { }
 
     std::shared_ptr<BluetoothSPP> static _this;
+
+    DataManagementMode dataManagementMode;
+    SecurityMode       securityMode;
+    Role               role;
+    std::string        deviceName;
+    std::string        serverName;
+
     std::shared_ptr<EspLogger> logger;
     Queue<SppTaskMsg>          sppQueue;
     Task                       sppReaderTask;
     Task                       sppTask;
 
-    int readerFileDescriptor{ -1 };
+    std::shared_ptr<BluetoothGAP> gapDriver;
 
+    int  readerFileDescriptor{ -1 };
+    bool sppServerStarted{ false };
+
+    std::map<Event, EventCallbackT> eventCallbacks;
+
+    auto static constexpr SPP_DATA_LEN = 100;
+    //    auto static constexpr SPP_SERVER_NAME     = "SPP_SERVER";
+    //    auto static constexpr EXAMPLE_DEVICE_NAME = "ESP_SPP_ACCEPTOR";
 };
