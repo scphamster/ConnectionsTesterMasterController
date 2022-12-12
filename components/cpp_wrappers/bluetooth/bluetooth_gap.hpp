@@ -134,7 +134,7 @@ class BluetoothGAP {
         esp_bt_io_cap_t   iocap      = ESP_BT_IO_CAP_IO;
         esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t));
     }
-    void static SetPin() noexcept
+    void static SetPinCode() noexcept
     {
         // todo: make configurable
 

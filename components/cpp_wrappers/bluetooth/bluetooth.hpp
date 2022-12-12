@@ -72,12 +72,12 @@ class Bluetooth {
         EnableController();
         BluedroidInit();
         BluedroidEnable();
-        logger->Log("Initialization complete, registering callbacks...");
 
+        logger->Log("Initialization complete, registering callbacks...");
         gapDriver->RegisterGAPCallback();
         sppDriver->RegisterSPPCallback();
-        logger->Log("Callbacks registered, initializing spp...");
 
+        logger->Log("Callbacks registered, initializing spp...");
         sppDriver->Init();
 #if (CONFIG_BT_SSP_ENABLED == true)
         gapDriver->ConfigureSecurity();
@@ -86,7 +86,7 @@ class Bluetooth {
 
         logger->Log("Spp initialized, setting pin...");
 
-        gapDriver->SetPin();
+        gapDriver->SetPinCode();
         logger->Log("Pin set, bluetooth configurations completed");
 
         sppDriver->LogOwnAddress();
@@ -169,14 +169,6 @@ class Bluetooth {
 
     void SetDeviceName(std::string new_name) noexcept { esp_bt_dev_set_device_name(new_name.c_str()); }
 
-    [[noreturn]] void RSSITask() noexcept {
-        auto some_str      = std::string{ "respond\n" };
-        std::array<char, 8U> data_for_file {some_str.c_str()};
-        while (true) {
-            sppDriver->Write<8>(data_for_file);
-        }
-    }
-
   private:
     Bluetooth(BasisMode mode, DeviceNameT new_device_name) noexcept
       : logger{ EspLogger::Get() }
@@ -187,7 +179,7 @@ class Bluetooth {
                                         BluetoothSPP::SecurityMode::Authenticate,
                                         BluetoothSPP::Role::Slave,
                                         "hamster test",
-                                        "hamster server") }, rssiIndicatorTask()
+                                        "hamster server") }
     {
         sppDriver->SetEventCallback(BluetoothSPP::Event::Start, [this]() {
             SetDeviceName(deviceName);
@@ -204,13 +196,9 @@ class Bluetooth {
     std::shared_ptr<BluetoothGAP> gapDriver;
     std::shared_ptr<BluetoothSPP> sppDriver;
 
-    Task rssiIndicatorTask;
-
     // todo: collect spp related data to single struct
-
     esp_spp_mode_t static constexpr esp_spp_mode = ESP_SPP_MODE_VFS;   // todo: wtf is this
     esp_spp_sec_t static constexpr sec_mask      = ESP_SPP_SEC_AUTHENTICATE;
     esp_spp_role_t static constexpr role_slave   = ESP_SPP_ROLE_SLAVE;
-
-    auto static constexpr SPP_DATA_LEN = 100;
+    auto static constexpr SPP_DATA_LEN           = 100;
 };

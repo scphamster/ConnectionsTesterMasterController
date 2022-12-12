@@ -4,6 +4,7 @@ set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
     ${COMPONENTS_DIR}/cpp_wrappers/gpio
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth
     ${COMPONENTS_DIR}/cpp_wrappers/logger
+    ${COMPONENTS_DIR}/cpp_wrappers/i2c
 
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/task
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/queue
@@ -28,9 +29,11 @@ set(CXX_SOURCES
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/bluetooth/bluetooth_spp.cpp
 
-
     ${COMPONENTS_DIR}/cpp_wrappers/logger/esp_logger.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/logger/esp_logger.cpp
+
+    ${COMPONENTS_DIR}/cpp_wrappers/i2c/IIC.cpp
+    ${COMPONENTS_DIR}/cpp_wrappers/i2c/IIC.hpp
 
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/task/task.hpp
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/task/task.cpp
@@ -42,6 +45,8 @@ set(CXX_SOURCES
 
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex/my_mutex.hpp
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex/my_mutex.cpp
+
+
     )
 
 set(C_SOURCES
