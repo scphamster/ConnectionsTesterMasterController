@@ -63,18 +63,22 @@ class BluetoothSPP {
         Master = 0,
         Slave
     };
-    std::shared_ptr<BluetoothSPP> static Create(DataManagementMode mode,
-                                                SecurityMode       security,
-                                                Role               new_role,
-                                                std::string        device_name,
-                                                std::string        server_name)
+    std::shared_ptr<BluetoothSPP> static Create(DataManagementMode           mode,
+                                                SecurityMode                 security,
+                                                Role                         new_role,
+                                                std::string                  device_name,
+                                                std::string                  server_name,
+                                                std::shared_ptr<Queue<char>> input_queue)
     {
         if (_this)
             std::terminate();
 
-        _this = std::shared_ptr<BluetoothSPP>{
-            new BluetoothSPP{ mode, security, new_role, std::move(device_name), std::move(server_name) }
-        };
+        _this = std::shared_ptr<BluetoothSPP>{ new BluetoothSPP{ mode,
+                                                                 security,
+                                                                 new_role,
+                                                                 std::move(device_name),
+                                                                 std::move(server_name),
+                                                                 std::move(input_queue) } };
 
         return Get();
     }
@@ -93,7 +97,8 @@ class BluetoothSPP {
     {
         eventCallbacks[for_event] = std::move(callback);
     }
-    void SetStreamBufferToTransmitter(std::shared_ptr<StreamBuffer<char>> new_sb) noexcept {
+    void SetStreamBufferToTransmitter(std::shared_ptr<StreamBuffer<char>> new_sb) noexcept
+    {
         streamBufferToTransmitter = new_sb;
     }
     // todo: make protected
@@ -136,10 +141,18 @@ class BluetoothSPP {
     }
     void StartTasks() noexcept { sppTask.Start(); }
     template<size_t NumberOfBytes>
-    void Write(std::array<char, NumberOfBytes> data) noexcept {
-        std::lock_guard<Mutex>{fileMutex};
-        write(readerFileDescriptor, data.data(), data.size() * sizeof(data.at(0)));
+    void Write(std::array<char, NumberOfBytes> data) noexcept
+    {
+        std::lock_guard<Mutex>{ fileMutex };
+        write(ioFileDescriptor, data.data(), data.size() * sizeof(data.at(0)));
     }
+    void Write(std::string text) noexcept
+    {
+        std::lock_guard<Mutex>{ fileMutex };
+        auto writen_bytes_number = write(ioFileDescriptor, text.data(), text.size());
+        logger->Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
+    }
+
   protected:
     struct SppTaskMsg {
         uint16_t           signal;
@@ -189,13 +202,13 @@ class BluetoothSPP {
     //****************************** TASKS *************************//
     [[noreturn]] void WriterTask()
     {
-        auto some_str      = std::string{ "respond\n" };
-        auto data_for_file = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(some_str.c_str()));
+        auto some_str = std::string{ "respond\n" };
+        //        auto data_for_file = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(some_str.c_str()));
+        auto data_for_file = some_str.data();
         while (true) {
-
             {
                 std::lock_guard<Mutex>{ fileMutex };
-                auto writen_bytes_number = write(readerFileDescriptor, data_for_file, some_str.size());
+                auto writen_bytes_number = write(ioFileDescriptor, data_for_file, some_str.size());
                 logger->Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
             }
 
@@ -211,7 +224,7 @@ class BluetoothSPP {
         do {
             {
                 std::lock_guard<Mutex>{ fileMutex };
-                bytes_read = read(readerFileDescriptor, data.data(), data.size());
+                bytes_read = read(ioFileDescriptor, data.data(), data.size());
             }
 
             if (bytes_read < 0) {
@@ -225,8 +238,9 @@ class BluetoothSPP {
             }
             else {
                 logger->Log("SPP: New data arrived:" + std::string{ data.data() });
-
-                logger->Log("SPP: Writing some data to file");
+                for (int byte = 0; byte < bytes_read; byte++) {
+                    inputQueue->SendImmediate(data.at(byte));
+                }
 
                 /* To avoid task watchdog */
                 Task::DelayMs(10);
@@ -279,9 +293,9 @@ class BluetoothSPP {
                             " Peer address:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
 
                 if (param.srv_open.status == ESP_SPP_SUCCESS) {
-                    readerFileDescriptor = param.srv_open.fd;
+                    ioFileDescriptor = param.srv_open.fd;
                     sppReaderTask.Start();
-//                    writerTask.Start();
+                    //                    writerTask.Start();
                 }
                 break;
             default: logger->Log("Unhandled SPP Event:" + std::to_string(spp_msg.event));
@@ -290,11 +304,12 @@ class BluetoothSPP {
     }
 
   private:
-    BluetoothSPP(DataManagementMode mode,
-                 SecurityMode       security,
-                 Role               new_role,
-                 std::string        device_name,
-                 std::string        server_name)
+    BluetoothSPP(DataManagementMode           mode,
+                 SecurityMode                 security,
+                 Role                         new_role,
+                 std::string                  device_name,
+                 std::string                  server_name,
+                 std::shared_ptr<Queue<char>> input_queue)
       : dataManagementMode{ mode }
       , securityMode{ security }
       , role{ new_role }
@@ -311,6 +326,7 @@ class BluetoothSPP {
                    "spp writer",
                    true)
       , sppTask{ [this]() { SPPTask(); }, ProjCfg::SppTaskStackSize, ProjCfg::SppTaskPrio, "bluetooth spp", true }
+      , inputQueue{ input_queue }
     { }
 
     std::shared_ptr<BluetoothSPP> static _this;
@@ -321,11 +337,12 @@ class BluetoothSPP {
     std::string        deviceName;
     std::string        serverName;
 
-    std::shared_ptr<EspLogger> logger;
-    Queue<SppTaskMsg>          sppQueue;
-    Task                       sppReaderTask;
-    Task                       writerTask;
-    Task                       sppTask;
+    std::shared_ptr<EspLogger>   logger;
+    Queue<SppTaskMsg>            sppQueue;
+    Task                         sppReaderTask;
+    Task                         writerTask;
+    Task                         sppTask;
+    std::shared_ptr<Queue<char>> inputQueue;
 
     mutable Mutex fileMutex;
 
@@ -333,7 +350,7 @@ class BluetoothSPP {
 
     std::shared_ptr<StreamBuffer<char>> streamBufferToTransmitter;
 
-    int  readerFileDescriptor{ -1 };
+    int  ioFileDescriptor{ -1 };
     bool serverStarted{ false };
 
     std::map<Event, EventCallbackT> eventCallbacks;

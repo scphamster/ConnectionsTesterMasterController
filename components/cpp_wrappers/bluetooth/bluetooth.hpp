@@ -44,12 +44,12 @@ class Bluetooth {
     Bluetooth(Bluetooth &&other)                 = default;
     Bluetooth &operator=(Bluetooth &&rhs)        = default;
 
-    void static Create(BasisMode mode, DeviceNameT device_name)
+    void static Create(BasisMode mode, DeviceNameT device_name, std::shared_ptr<Queue<char>> input_queue)
     {
         if (_this)
             return;
 
-        _this = std::shared_ptr<Bluetooth>{ new Bluetooth{ mode, device_name } };
+        _this = std::shared_ptr<Bluetooth>{ new Bluetooth{ mode, device_name, input_queue } };
         _this->Initialize();
     }
     std::shared_ptr<Bluetooth> static Get()
@@ -60,6 +60,8 @@ class Bluetooth {
         else
             std::terminate();
     }
+
+    void Write(std::string text) noexcept { sppDriver->Write(text); }
 
   protected:
     //*************************VVVV Initializers VVVV*********************//
@@ -170,7 +172,7 @@ class Bluetooth {
     void SetDeviceName(std::string new_name) noexcept { esp_bt_dev_set_device_name(new_name.c_str()); }
 
   private:
-    Bluetooth(BasisMode mode, DeviceNameT new_device_name) noexcept
+    Bluetooth(BasisMode mode, DeviceNameT new_device_name, std::shared_ptr<Queue<char>> input_queue) noexcept
       : logger{ EspLogger::Get() }
       , basisMode{ mode }
       , deviceName{ new_device_name }
@@ -179,7 +181,8 @@ class Bluetooth {
                                         BluetoothSPP::SecurityMode::Authenticate,
                                         BluetoothSPP::Role::Slave,
                                         "hamster test",
-                                        "hamster server") }
+                                        "hamster server",
+                                        input_queue) }
     {
         sppDriver->SetEventCallback(BluetoothSPP::Event::Start, [this]() {
             SetDeviceName(deviceName);

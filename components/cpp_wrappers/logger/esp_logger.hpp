@@ -1,4 +1,6 @@
 #pragma once
+#include "project_configs.hpp"
+
 #include <memory>
 #include <mutex>
 #include <string>
@@ -37,4 +39,30 @@ class EspLogger {
 
     std::shared_ptr<EspLogger> static _this;
     Mutex mutable writeMutex;
+};
+
+class SmartLogger {
+  public:
+    SmartLogger(std::string new_tag, ProjCfg::ComponentLogSwitch component_logging_enabled)
+      : tag{ new_tag }
+      , console{ EspLogger::Get() }
+      , isEnabled{ static_cast<bool>(component_logging_enabled) }
+    { }
+
+    void LogError(std::string text) noexcept
+    {
+        if (isEnabled)
+            console->LogError(tag + ": " + text);
+    }
+    void Log(std::string text) noexcept
+    {
+        if (isEnabled)
+            console->Log(tag + ": " + text);
+    }
+    void SetNewTag(std::string new_tag) noexcept { tag = new_tag; }
+
+  private:
+    std::string                tag     = "";
+    std::shared_ptr<EspLogger> console = nullptr;
+    bool                       isEnabled{ false };
 };

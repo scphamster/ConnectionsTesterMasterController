@@ -43,6 +43,10 @@ class Queue {
     {
         return (xQueueSend(handle, static_cast<const void *>(&item), pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? true : false;
     }
+    bool Send(ItemType const &item) const noexcept
+    {
+        return (xQueueSend(handle, static_cast<const void *>(&item), portMAX_DELAY) == pdTRUE) ? true : false;
+    }
     bool SendImmediate(ItemType const &item) const noexcept { return Send(item, 0); }
     void Flush() noexcept
     {

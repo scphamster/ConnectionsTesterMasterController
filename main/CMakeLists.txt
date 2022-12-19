@@ -10,6 +10,7 @@ set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/queue
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/semaphore
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex
+    ${COMPONENTS_DIR}/io_board
 
     )
 
@@ -45,6 +46,11 @@ set(CXX_SOURCES
 
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex/my_mutex.hpp
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex/my_mutex.cpp
+
+    ${COMPONENTS_DIR}/io_board/data_link.hpp
+    ${COMPONENTS_DIR}/io_board/board_controller.hpp
+    ${COMPONENTS_DIR}/io_board/main_apparatus.hpp
+    ${COMPONENTS_DIR}/io_board/main_apparatus.cpp
 
 
     )

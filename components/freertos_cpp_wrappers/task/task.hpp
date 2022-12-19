@@ -13,18 +13,28 @@ class Task {
     using TaskFunctor = std::function<void()>;
     using TimeT       = portTickType;
     using TickT       = portTickType;
+    using CoreNumT    = size_t;
     enum {
         TaskCreationSucceeded = pdPASS
     };
-    Task(TaskFunctor &&new_functor, size_t stacksize, size_t new_priority, std::string new_name, bool suspended = false)
+    Task(TaskFunctor &&new_functor,
+         size_t        stacksize,
+         size_t        new_priority,
+         std::string   new_name,
+         CoreNumT      runs_on_core,
+         bool          suspended = false)
       : functor{ std::move(new_functor) }
       , name{ std::move(new_name) }
       , stackSize{ stacksize }
       , priority{ new_priority }
+      , core{ runs_on_core }
     {
         if (not suspended)
             configASSERT(CreateFreeRTOSTask());
     }
+    Task(TaskFunctor &&new_functor, size_t stacksize, size_t new_priority, std::string new_name, bool suspended = false)
+      : Task{ std::move(new_functor), stacksize, new_priority, new_name, tskNO_AFFINITY, suspended }
+    { }
 
     Task(Task const &)            = delete;
     Task &operator=(Task const &) = delete;
@@ -83,7 +93,8 @@ class Task {
     bool CreateFreeRTOSTask() noexcept
     {
         auto retval =
-          xTaskCreate(TaskCppTaskWrapper, name.c_str(), stackSize, this, priority, &taskHandle) == TaskCreationSucceeded
+          xTaskCreatePinnedToCore(TaskCppTaskWrapper, name.c_str(), stackSize, this, priority, &taskHandle, core) ==
+              TaskCreationSucceeded
             ? true
             : false;
 
@@ -104,5 +115,6 @@ class Task {
     std::string name;
     size_t      stackSize;
     size_t      priority;
+    CoreNumT    core;
     bool        hasBeenStarted{ false };
 };
