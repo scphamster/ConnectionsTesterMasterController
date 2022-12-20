@@ -30,5 +30,6 @@ enum class ComponentLogSwitch : bool {
     IIC      = true,
     IOBoards = true,
     Main     = true,
+    BluetoothSPP = true,
 };
 }

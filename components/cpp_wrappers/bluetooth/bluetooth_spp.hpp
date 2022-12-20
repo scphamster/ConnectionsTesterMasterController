@@ -114,7 +114,7 @@ class BluetoothSPP {
     {
         if (esp_spp_register_callback(
               [](esp_spp_cb_event_t event, esp_spp_cb_param_t *param) { MainCallback(event, param); }) != ESP_OK) {
-            logger->LogError("spp callback registration failed");
+            logger.LogError("spp callback registration failed");
 
             InitializationFailedCallback();
             return false;
@@ -125,7 +125,7 @@ class BluetoothSPP {
     bool Init() noexcept
     {
         if (esp_spp_init(EnumToEspNativeType(dataManagementMode)) != ESP_OK) {
-            logger->LogError("SPP Init failed");
+            logger.LogError("SPP Init failed");
 
             InitializationFailedCallback();
             return false;
@@ -133,10 +133,10 @@ class BluetoothSPP {
 
         return true;
     }
-    void LogOwnAddress() const noexcept
+    void LogOwnAddress() noexcept
     {
         std::array<char, 18> bda_str;
-        logger->Log("Own Address is: " +
+        logger.Log("Own Address is: " +
                     std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
     }
     void StartTasks() noexcept { sppTask.Start(); }
@@ -150,7 +150,7 @@ class BluetoothSPP {
     {
         std::lock_guard<Mutex>{ fileMutex };
         auto writen_bytes_number = write(ioFileDescriptor, text.data(), text.size());
-        logger->Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
+        logger.Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
     }
 
   protected:
@@ -186,7 +186,7 @@ class BluetoothSPP {
         auto spp_msg = SppTaskMsg{ SPP_TASK_SIG_WORK_DISPATCH, event, static_cast<esp_spp_cb_param_t>(*param) };
 
         if (not _this->sppQueue.Send(spp_msg, ProjCfg::SppSendTimeoutMs))
-            _this->logger->LogError("spp send timeouted!");
+            _this->logger.LogError("spp send timeouted!");
     }
     void RegisterVFS() const noexcept { esp_spp_vfs_register(); }
     void StartServer() noexcept
@@ -209,7 +209,7 @@ class BluetoothSPP {
             {
                 std::lock_guard<Mutex>{ fileMutex };
                 auto writen_bytes_number = write(ioFileDescriptor, data_for_file, some_str.size());
-                logger->Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
+                logger.Log("Data written to file, bytes written:" + std::to_string(writen_bytes_number));
             }
 
             Task::DelayMs(500);
@@ -228,7 +228,7 @@ class BluetoothSPP {
             }
 
             if (bytes_read < 0) {
-                logger->Log("SPP File descriptor read failed");
+                logger.Log("SPP File descriptor read failed");
                 std::terminate();
                 break;
             }
@@ -237,7 +237,7 @@ class BluetoothSPP {
                 Task::DelayMs(500);
             }
             else {
-                logger->Log("SPP: New data arrived:" + std::string{ data.data() });
+                logger.Log("SPP: New data arrived:" + std::string{ data.data() });
                 for (int byte = 0; byte < bytes_read; byte++) {
                     inputQueue->SendImmediate(data.at(byte));
                 }
@@ -253,42 +253,45 @@ class BluetoothSPP {
 
         while (true) {
             auto spp_msg = sppQueue.Receive();
-
-            auto param = spp_msg.params;
-            auto event = static_cast<Event>(spp_msg.event);
+            if (not spp_msg) {
+                logger.LogError("Bluetooth spp queue reception failed");
+                continue;
+            }
+            auto param = spp_msg->params;
+            auto event = static_cast<Event>(spp_msg->event);
 
             InvokeCallbackForEvent(event);
 
             switch (event) {
             case Event::Initialized:
                 if (param.init.status == ESP_SPP_SUCCESS) {
-                    logger->Log("Spp Initialize event");
+                    logger.Log("Spp Initialize event");
 
                     RegisterVFS();
                     StartServer();
                 }
                 else {
-                    logger->LogError("SPP Init failed, error code:" + std::to_string(spp_msg.params.init.status));
+                    logger.LogError("SPP Init failed, error code:" + std::to_string(spp_msg->params.init.status));
                 }
                 break;
-            case Event::DiscoveryCompleted: logger->Log("SPP: Discovery complete event!"); break;
-            case Event::Open: logger->Log("SPP Open Event"); break;
-            case Event::Close: logger->Log("SPP Close event"); break;
+            case Event::DiscoveryCompleted: logger.Log("SPP: Discovery complete event!"); break;
+            case Event::Open: logger.Log("SPP Open Event"); break;
+            case Event::Close: logger.Log("SPP Close event"); break;
             case Event::Start:
                 if (param.start.status == ESP_SPP_SUCCESS) {
-                    logger->Log("SPP start event, handle=" + std::to_string(param.start.handle) +
+                    logger.Log("SPP start event, handle=" + std::to_string(param.start.handle) +
                                 " security id:" + std::to_string(param.start.sec_id) +
                                 " server channel:" + std::to_string(param.start.scn));
 
                     connectionHandle = param.start.handle;
                 }
                 else {
-                    logger->LogError("SPP start event failed, status:" + std::to_string(param.start.status));
+                    logger.LogError("SPP start event failed, status:" + std::to_string(param.start.status));
                 }
                 break;
-            case Event::ClientInitiated: logger->Log("Client initiated connection!"); break;
+            case Event::ClientInitiated: logger.Log("Client initiated connection!"); break;
             case Event::ServerConnectionOpen:
-                logger->Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
+                logger.Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
                             " Handle:" + std::to_string(param.srv_open.handle) +
                             " Peer address:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
 
@@ -298,7 +301,7 @@ class BluetoothSPP {
                     //                    writerTask.Start();
                 }
                 break;
-            default: logger->Log("Unhandled SPP Event:" + std::to_string(spp_msg.event));
+            default: logger.Log("Unhandled SPP Event:" + std::to_string(spp_msg->event));
             }
         }
     }
@@ -313,7 +316,7 @@ class BluetoothSPP {
       : dataManagementMode{ mode }
       , securityMode{ security }
       , role{ new_role }
-      , logger{ EspLogger::Get() }
+      , logger{ "bluetooth spp:", ProjCfg::ComponentLogSwitch::BluetoothSPP }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
       , sppReaderTask{ [this]() { ReaderTask(); },
                        ProjCfg::SppReaderTaskStackSize,
@@ -337,7 +340,7 @@ class BluetoothSPP {
     std::string        deviceName;
     std::string        serverName;
 
-    std::shared_ptr<EspLogger>   logger;
+    SmartLogger                  logger;
     Queue<SppTaskMsg>            sppQueue;
     Task                         sppReaderTask;
     Task                         writerTask;

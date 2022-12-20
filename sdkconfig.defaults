@@ -9,6 +9,8 @@ CONFIG_WIFI_ENABLED=n
 CONFIG_BT_SPP_ENABLED=y
 CONFIG_BT_BLE_ENABLED=n
 
+#######################COMPILER######################
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
 
 ##########################I2C#################
 CONFIG_I2C_MASTER_SDA=33

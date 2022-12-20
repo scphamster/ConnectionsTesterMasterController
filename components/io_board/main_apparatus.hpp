@@ -11,6 +11,7 @@
 #include "queue.hpp"
 #include "semaphore.hpp"
 #include "bluetooth.hpp"
+#include "string_parser.hpp"
 
 class Apparatus {
   public:
@@ -18,7 +19,7 @@ class Apparatus {
     using BoardAddrT   = Byte;
     using PinsVoltages = Board::PinsVoltages;
     using QueueT       = Queue<PinsVoltages>;
-
+    using PinNumT      = Board::PinNumT;
     void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
     {
         _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue) } };
@@ -37,7 +38,8 @@ class Apparatus {
 
   protected:
     enum class UserCommand {
-        MeasureAll
+        MeasureAll,
+        SetPinVoltage
     };
     void Init() noexcept { FindAllConnectedBoards(); }
     void FindAllConnectedBoards() noexcept
@@ -72,7 +74,56 @@ class Apparatus {
         }
     }
 
-    void MeasureAll() noexcept
+    void SetPinVoltage(PinNumT pin, bool new_pin_state) noexcept
+    {
+        // todo: replace magic numbers
+        auto board_num    = pin / 32;
+        auto pin_at_board = pin % 32;
+
+        if (board_num + 1 > ioBoards.size()) {
+            std::string err_msg = "requested pin number: " + std::to_string(pin) +
+                                  " which requires board number (count from 1) = " + std::to_string(board_num + 1) +
+                                  " but there are only " + std::to_string(ioBoards.size()) + " boards found\n";
+
+            console.LogError(err_msg);
+            bluetooth->Write(err_msg);
+
+            return;
+        }
+
+        // todo: use new_level variable
+        ioBoards.at(board_num)->SetVoltageAtPin(pin_at_board);
+    }
+
+    void FindConnections(std::vector<PinNumT> for_pins) noexcept
+    {
+        if (for_pins.size() == 0)
+            return;
+
+        for (auto pin : for_pins) {
+            SetPinVoltage(pin, true);
+
+            auto all_voltages = MeasureAll();
+
+            std::string connected_to_this;
+
+            auto pin_counter = 0;
+
+            for (auto voltages_for_board : all_voltages) {
+                for (auto voltage : voltages_for_board.voltagesArray) {
+                    if (voltage > 0) {
+                        connected_to_this.append(std::to_string(pin_counter) + ' ');
+                    }
+
+                    pin_counter++;
+                }
+            }
+
+            console.Log("Connected to " + std::to_string(pin) + ' ' + connected_to_this);
+        }
+    }
+
+    std::vector<PinsVoltages> MeasureAll() noexcept
     {
         for (auto const &semaphore : boardsSemaphores) {
             semaphore->Give();
@@ -81,13 +132,13 @@ class Apparatus {
         std::vector<PinsVoltages> voltageTable;
 
         for (auto const &dummy : ioBoards) {
-            voltageTable.push_back(voltageTablesQueue->Receive());
+            voltageTable.push_back(*voltageTablesQueue->Receive());
         }
 
         console.Log("Voltage table arrived, size: " + std::to_string(voltageTable.size()));
         for (auto const &table : voltageTable) {
-            console.Log("Voltage table from board: " + std::to_string(table.boardAddress));
-            bluetooth->Write("Voltage table from board: " + std::to_string(table.boardAddress) + '\n');
+//            console.Log("Voltage table from board: " + std::to_string(table.boardAddress));
+//            bluetooth->Write("Voltage table from board: " + std::to_string(table.boardAddress) + '\n');
 
             auto pin_num = 0;
             for (auto const &value : table.voltagesArray) {
@@ -97,14 +148,45 @@ class Apparatus {
                 pin_num++;
             }
         }
-    }
-    UserCommand WaitForUserCommand() noexcept
-    {   //todo: make full parser
-        while (true) {
-            auto value = inputQueue->Receive();
 
-            if (value == 'a')
-                return UserCommand::MeasureAll;
+        return voltageTable;
+    }
+    std::pair<UserCommand, int> WaitForUserCommand() noexcept
+    {   // todo: make full parser
+        while (true) {
+            std::string cmd;
+            cmd += *inputQueue->Receive();
+
+            for (;;) {
+                auto result = inputQueue->Receive(pdMS_TO_TICKS(10));
+                if (result) {
+                    cmd += std::move(*result);
+                }
+                else
+                    break;
+            }
+
+            auto words = StringParser::GetWords(cmd);
+
+            console.Log("new command arrived");
+            for (auto const &word : words) {
+                console.Log(word);
+            }
+
+            if (words.at(0) == "set") {
+                int argument;
+
+                try {
+                    argument = std::stoi(words.at(1));
+                } catch (...) {
+                    console.LogError("invalid argument: " + words.at(1) + ", exception: " /*+ ex.what()*/);
+                }
+
+                return { UserCommand::SetPinVoltage, argument };
+            }
+            else if (words.at(0) == "all") {
+                return { UserCommand::MeasureAll, 0 };
+            }
         }
     }
 
@@ -112,10 +194,14 @@ class Apparatus {
     void MeasurementsTask() noexcept
     {
         while (true) {
-            auto command = WaitForUserCommand();
+            auto [command, args] = WaitForUserCommand();
 
             switch (command) {
-            case UserCommand::MeasureAll: MeasureAll(); break;
+                //            case UserCommand::MeasureAll: MeasureAll(); break;
+            case UserCommand::MeasureAll:
+                FindConnections(std::vector<PinNumT>{ 1, 2, 3 });
+                break;
+                //            case UserCommand::SetPinVoltage: SetPinVoltage(args, true);
             default: break;
             }
 

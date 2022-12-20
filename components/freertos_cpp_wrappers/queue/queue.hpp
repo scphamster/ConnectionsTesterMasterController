@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <optional>
 #include <mutex>
 
 #include "freertos/FreeRTOS.h"
@@ -8,7 +9,6 @@
 #include "semaphore.hpp"
 #include "freertos/stream_buffer.h"
 #include "my_mutex.hpp"
-
 template<typename ItemType>
 class Queue {
   public:
@@ -32,11 +32,14 @@ class Queue {
         vQueueDelete(handle);
     }
 
-    ItemType Receive(TimeT timeout = portMAX_DELAY)
+    std::optional<ItemType> Receive(TimeT timeout = portMAX_DELAY)
     {
         ItemType new_item;
-        configASSERT(xQueueReceive(handle, &new_item, timeout) == pdTRUE);   // todo: handle exception
-        return new_item;
+
+        if (xQueueReceive(handle, &new_item, timeout) == pdTRUE)
+            return new_item;
+        else
+            return std::nullopt;
     }
 
     bool Send(ItemType const &item, TimeT timeout_ms) const noexcept

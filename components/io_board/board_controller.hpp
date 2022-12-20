@@ -8,6 +8,7 @@
 class Board {
   public:
     using Byte             = uint8_t;
+    using PinNumT          = size_t;
     using AddressT         = Byte;
     using ADCValueT        = uint16_t;
     using InternalCounterT = uint32_t;
@@ -36,7 +37,7 @@ class Board {
                               "board" + std::to_string(i2c_address),
                               true)
     {
-                        voltageTableCheckTask.Start();
+        voltageTableCheckTask.Start();
     }
 
     AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
