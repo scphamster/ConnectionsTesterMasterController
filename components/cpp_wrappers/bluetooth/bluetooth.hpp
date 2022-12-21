@@ -67,7 +67,7 @@ class Bluetooth {
     //*************************VVVV Initializers VVVV*********************//
     void Initialize() noexcept
     {
-        logger->Log("Initializing bluetooth");
+        logger.Log("Initializing bluetooth");
 
         InitMemory();
         InitController();
@@ -75,21 +75,21 @@ class Bluetooth {
         BluedroidInit();
         BluedroidEnable();
 
-        logger->Log("Initialization complete, registering callbacks...");
+        logger.Log("Initialization complete, registering callbacks...");
         gapDriver->RegisterGAPCallback();
         sppDriver->RegisterSPPCallback();
 
-        logger->Log("Callbacks registered, initializing spp...");
+        logger.Log("Callbacks registered, initializing spp...");
         sppDriver->Init();
 #if (CONFIG_BT_SSP_ENABLED == true)
         gapDriver->ConfigureSecurity();
 #endif
         sppDriver->StartTasks();
 
-        logger->Log("Spp initialized, setting pin...");
+        logger.Log("Spp initialized, setting pin...");
 
         gapDriver->SetPinCode();
-        logger->Log("Pin set, bluetooth configurations completed");
+        logger.Log("Pin set, bluetooth configurations completed");
 
         sppDriver->LogOwnAddress();
     }
@@ -105,7 +105,7 @@ class Bluetooth {
         }
 
         if (result != ESP_OK) {
-            logger->LogError("controller mem release failed");
+            logger.LogError("controller mem release failed");
             InitializationFailedCallback();
             return false;
         }
@@ -117,7 +117,7 @@ class Bluetooth {
         // todo: make configurable
         esp_bt_controller_config_t configs = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
         if (esp_bt_controller_init(&configs) != ESP_OK) {
-            logger->LogError("bluetooth controller init failed");
+            logger.LogError("bluetooth controller init failed");
             InitializationFailedCallback();
             return false;
         }
@@ -127,7 +127,7 @@ class Bluetooth {
     bool BluedroidInit() noexcept
     {
         if (esp_bluedroid_init() != ESP_OK) {
-            logger->LogError("bluedroid init failed");
+            logger.LogError("bluedroid init failed");
             InitializationFailedCallback();
             return false;
         }
@@ -139,7 +139,7 @@ class Bluetooth {
     bool BluedroidEnable() noexcept
     {
         if (esp_bluedroid_enable() != ESP_OK) {
-            logger->LogError("bluedroid start failed");
+            logger.LogError("bluedroid start failed");
             InitializationFailedCallback();
             return false;
         }
@@ -149,7 +149,7 @@ class Bluetooth {
     bool EnableController() noexcept
     {
         if (esp_bt_controller_enable(GetEspBtMode()) != ESP_OK) {
-            logger->LogError("controller enable failed");
+            logger.LogError("controller enable failed");
             InitializationFailedCallback();
             return false;
         }
@@ -173,7 +173,7 @@ class Bluetooth {
 
   private:
     Bluetooth(BasisMode mode, DeviceNameT new_device_name, std::shared_ptr<Queue<char>> input_queue) noexcept
-      : logger{ EspLogger::Get() }
+      : logger{ "Bluetooth Main", ProjCfg::EnableLogForComponent::BluettothMain }
       , basisMode{ mode }
       , deviceName{ new_device_name }
       , gapDriver{ BluetoothGAP::Get() }
@@ -192,9 +192,9 @@ class Bluetooth {
     }
 
     std::shared_ptr<Bluetooth> static _this;
-    std::shared_ptr<LoggerT> logger;
-    BasisMode                basisMode;
-    DeviceNameT              deviceName;
+    SmartLogger logger;
+    BasisMode   basisMode;
+    DeviceNameT deviceName;
 
     std::shared_ptr<BluetoothGAP> gapDriver;
     std::shared_ptr<BluetoothSPP> sppDriver;

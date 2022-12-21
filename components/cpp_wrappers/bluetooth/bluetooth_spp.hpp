@@ -249,7 +249,7 @@ class BluetoothSPP {
     }
     [[noreturn]] void SPPTask() noexcept
     {
-        std::array<char, 18> bda_str{};
+        std::array<char,    18> bda_str{};
 
         while (true) {
             auto spp_msg = sppQueue.Receive();
@@ -316,7 +316,7 @@ class BluetoothSPP {
       : dataManagementMode{ mode }
       , securityMode{ security }
       , role{ new_role }
-      , logger{ "bluetooth spp:", ProjCfg::ComponentLogSwitch::BluetoothSPP }
+      , logger{ "bluetooth spp:", ProjCfg::EnableLogForComponent::BluetoothSPP }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
       , sppReaderTask{ [this]() { ReaderTask(); },
                        ProjCfg::SppReaderTaskStackSize,

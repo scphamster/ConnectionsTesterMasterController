@@ -43,7 +43,7 @@ class EspLogger {
 
 class SmartLogger {
   public:
-    SmartLogger(std::string new_tag, ProjCfg::ComponentLogSwitch component_logging_enabled)
+    SmartLogger(std::string new_tag, ProjCfg::EnableLogForComponent component_logging_enabled)
       : tag{ new_tag }
       , console{ EspLogger::Get() }
       , isEnabled{ static_cast<bool>(component_logging_enabled) }

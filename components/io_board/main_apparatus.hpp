@@ -15,11 +15,12 @@
 
 class Apparatus {
   public:
-    using Byte         = uint8_t;
-    using BoardAddrT   = Byte;
-    using PinsVoltages = Board::PinsVoltages;
-    using QueueT       = Queue<PinsVoltages>;
-    using PinNumT      = Board::PinNumT;
+    using Byte               = uint8_t;
+    using BoardAddrT         = Byte;
+    using PinsVoltages       = Board::PinsVoltages;
+    using OutputVoltageLevel = Board::OutputVoltage;
+    using QueueT             = Queue<PinsVoltages>;
+    using PinNumT            = Board::PinNumT;
     void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
     {
         _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue) } };
@@ -39,8 +40,14 @@ class Apparatus {
   protected:
     enum class UserCommand {
         MeasureAll,
-        SetPinVoltage
+        EnableOutputForPin
     };
+    struct SetPinVoltageCmd {
+        enum SpecialPinConfigurations : Byte {
+            DisableAll = 254
+        };
+    };
+
     void Init() noexcept { FindAllConnectedBoards(); }
     void FindAllConnectedBoards() noexcept
     {
@@ -51,7 +58,7 @@ class Apparatus {
             auto board_found = i2c->CheckIfSlaveWithAddressIsOnLine(addr);
 
             if (board_found) {
-                console.Log("Board with address: " + std::to_string(addr) + " was found");
+                console.Log("board with address:" + std::to_string(addr) + " was found");
                 ioBoards.emplace_back(std::make_shared<Board>(addr, voltageTablesQueue));
                 boardsSemaphores.push_back(ioBoards.back()->GetStartSemaphore());
             }
@@ -62,19 +69,18 @@ class Apparatus {
                              " and " + std::to_string(last_address));
 
         for (auto const &board : ioBoards) {
-            auto [read_succeeded, counter_value] = board->GetBoardCounterValue();
-            if (not read_succeeded) {
+            auto counter_value = board->GetBoardCounterValue();
+            if (not counter_value) {
                 console.LogError("Board with address: " + std::to_string(board->GetAddress()) +
-                                 " did not successfully answered to CounterValue request");
+                                 " has not properly answered to CounterValue request");
             }
             else {
                 console.Log("Board with address: " + std::to_string(board->GetAddress()) +
-                            " properly answered for InternalCounter Command, value = " + std::to_string(counter_value));
+                            " properly answered for InternalCounter Command, value = " + std::to_string(*counter_value));
             }
         }
     }
-
-    void SetPinVoltage(PinNumT pin, bool new_pin_state) noexcept
+    void EnableOutputForPin(PinNumT pin) noexcept
     {
         // todo: replace magic numbers
         auto board_num    = pin / 32;
@@ -94,14 +100,19 @@ class Apparatus {
         // todo: use new_level variable
         ioBoards.at(board_num)->SetVoltageAtPin(pin_at_board);
     }
-
+    void SetOutputVoltageValue(OutputVoltageLevel level) noexcept
+    {
+        for (auto const &board : ioBoards) {
+            board->SetOutputVoltageValue(level);
+        }
+    }
     void FindConnections(std::vector<PinNumT> for_pins) noexcept
     {
         if (for_pins.size() == 0)
             return;
 
         for (auto pin : for_pins) {
-            SetPinVoltage(pin, true);
+            EnableOutputForPin(pin);
 
             auto all_voltages = MeasureAll();
 
@@ -137,8 +148,8 @@ class Apparatus {
 
         console.Log("Voltage table arrived, size: " + std::to_string(voltageTable.size()));
         for (auto const &table : voltageTable) {
-//            console.Log("Voltage table from board: " + std::to_string(table.boardAddress));
-//            bluetooth->Write("Voltage table from board: " + std::to_string(table.boardAddress) + '\n');
+            //            console.Log("Voltage table from board: " + std::to_string(table.boardAddress));
+            //            bluetooth->Write("Voltage table from board: " + std::to_string(table.boardAddress) + '\n');
 
             auto pin_num = 0;
             for (auto const &value : table.voltagesArray) {
@@ -160,7 +171,7 @@ class Apparatus {
             for (;;) {
                 auto result = inputQueue->Receive(pdMS_TO_TICKS(10));
                 if (result) {
-                    cmd += std::move(*result);
+                    cmd += (*result);
                 }
                 else
                     break;
@@ -168,21 +179,29 @@ class Apparatus {
 
             auto words = StringParser::GetWords(cmd);
 
-            console.Log("new command arrived");
-            for (auto const &word : words) {
-                console.Log(word);
-            }
+            console.Log("Command arrived: " + cmd);
 
             if (words.at(0) == "set") {
-                int argument;
+                int argument{ -1 };
 
                 try {
                     argument = std::stoi(words.at(1));
                 } catch (...) {
-                    console.LogError("invalid argument: " + words.at(1) + ", exception: " /*+ ex.what()*/);
+                    bluetooth->Write("invalid argument: " + words.at(1) + ". Example usage: set 14");
                 }
 
-                return { UserCommand::SetPinVoltage, argument };
+                return { UserCommand::EnableOutputForPin, argument };
+            }
+            else if (words.at(0) == "voltage") {
+                if (words.at(1) == "high") {
+                    SetOutputVoltageValue(OutputVoltageLevel::_09);
+                }
+                else if (words.at(1) == "low") {
+                    SetOutputVoltageValue(OutputVoltageLevel ::_07);
+                }
+                else {
+                    bluetooth->Write("invalid argument for command: " + words.at(0) + ". Respected arguments: low, high");
+                }
             }
             else if (words.at(0) == "all") {
                 return { UserCommand::MeasureAll, 0 };
@@ -190,32 +209,110 @@ class Apparatus {
         }
     }
 
-    // tasks
-    void MeasurementsTask() noexcept
+    // tests
+    [[noreturn]] void UnitTestAllRead() noexcept
     {
         while (true) {
-            auto [command, args] = WaitForUserCommand();
-
-            switch (command) {
-                //            case UserCommand::MeasureAll: MeasureAll(); break;
-            case UserCommand::MeasureAll:
-                FindConnections(std::vector<PinNumT>{ 1, 2, 3 });
-                break;
-                //            case UserCommand::SetPinVoltage: SetPinVoltage(args, true);
-            default: break;
+            auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
+            if (voltages) {
+                int pin_counter = 0;
+                for (auto const voltage : *voltages) {
+                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(voltage));
+                    pin_counter++;
+                }
             }
 
             Task::DelayMs(2000);
         }
     }
+    [[noreturn]] void UnitTestGetCounter() noexcept
+    {
+        while (true) {
+            auto counter = ioBoards.at(0)->GetBoardCounterValue();
+
+            if (counter) {
+                console.Log("counter value = " + std::to_string(*counter));
+            }
+
+            Task::DelayMs(500);
+        }
+    }
+    [[noreturn]] void UnitTestEnableOutputAtPin() noexcept
+    {
+        while (true) {
+            for (auto pin_counter = 0; pin_counter < 32; pin_counter++) {
+                ioBoards.at(0)->SetVoltageAtPin(pin_counter);
+                Task::DelayMs(500);
+            }
+        }
+    }
+    [[noreturn]] void UnitTestGetVoltageFromPin() noexcept
+    {
+        while (true) {
+            for (auto pin_counter = 0; pin_counter < 32; pin_counter++) {
+                auto pin_v = ioBoards.at(0)->GetPinVoltage(pin_counter);
+
+                if (pin_v) {
+                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
+                }
+                Task::DelayMs(500);
+            }
+        }
+    }
+    [[noreturn]] void UnitTestTwoCommands() noexcept
+    {
+        while (true) {
+            auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
+            if (voltages) {
+                int pin_counter = 0;
+                for (auto const voltage : *voltages) {
+                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(voltage));
+                    pin_counter++;
+                }
+            }
+            Task::DelayMs(500);
+            for (auto pin_counter = 0; pin_counter < 32; pin_counter++) {
+                auto pin_v = ioBoards.at(0)->GetPinVoltage(pin_counter);
+
+                if (pin_v) {
+                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
+                }
+                Task::DelayMs(500);
+            }
+        }
+    }
+    // tasks
+    [[noreturn]] void CommandDirectorTask() noexcept
+    {
+        //                UnitTestAllRead();
+        //        UnitTestGetCounter();
+        //        UnitTestEnableOutputAtPin();
+        //        UnitTestGetVoltageFromPin();
+        UnitTestTwoCommands();
+
+        while (true) {
+            auto [command, args] = WaitForUserCommand();
+
+            switch (command) {
+                //            case UserCommand::MeasureAll: MeasureAll(); break;
+            case UserCommand::MeasureAll: {
+                FindConnections(std::vector<PinNumT>{ 1, 2, 3 });
+            } break;
+            case UserCommand::EnableOutputForPin: {
+                EnableOutputForPin(args);
+            } break;
+            default: break;
+            }
+        }
+    }
 
   private:
     Apparatus(std::shared_ptr<Queue<char>> input_queue)
-      : console{ "Main", ProjCfg::ComponentLogSwitch::Main }
+      : console{ "Main", ProjCfg::EnableLogForComponent::Main }
       , voltageTablesQueue{ std::make_shared<QueueT>(10) }
       , inputQueue{ std::move(input_queue) }
       , bluetooth{ Bluetooth::Get() }
-      , measurementsTask{ [this]() { MeasurementsTask(); },
+      , measurementsTask{ [this]() { CommandDirectorTask(); },
                           static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskStackSize),
                           static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskPrio),
                           "meas",

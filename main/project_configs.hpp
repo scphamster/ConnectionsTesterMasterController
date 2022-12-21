@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 
 namespace ProjCfg
 {
@@ -26,10 +27,15 @@ enum Tasks {
     MainMeasurementsTaskStackSize = 4000
 };
 
-enum class ComponentLogSwitch : bool {
+enum class EnableLogForComponent : bool {
     IIC      = true,
     IOBoards = true,
     Main     = true,
-    BluetoothSPP = true,
+    BluetoothSPP = false,
+    BluettothMain = false
+
 };
+
+uint8_t const static high_voltage_reference_select_pin = 20;
+uint8_t const static low_voltage_reference_select_pin  = 21;
 }

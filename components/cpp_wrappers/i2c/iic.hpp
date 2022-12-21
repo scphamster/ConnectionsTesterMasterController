@@ -6,13 +6,13 @@
 #include <memory>
 #include <type_traits>
 #include <vector>
+#include <optional>
+#include <mutex>
 
 #include "FreeRTOS/FreeRTOS.h"
 #include "driver/i2c.h"
-
 #include "esp_logger.hpp"
 #include "my_mutex.hpp"
-#include <mutex>
 
 class IIC {
   public:
@@ -72,11 +72,11 @@ class IIC {
         return static_cast<OperationResult>(result);
     }
     template<typename ReturnType>
-    std::pair<bool, ReturnType> Read(PeripheralAddress address, TickType_t timeout_ms) noexcept
+    std::optional<ReturnType> Read(PeripheralAddress address, TickType_t timeout_ms) noexcept
     {
-        ReturnType                            retval;
+        ReturnType                            object;
         std::array<Byte, sizeof(ReturnType)> *read_buffer =
-          reinterpret_cast<std::array<Byte, sizeof(ReturnType)> *>(&retval);
+          reinterpret_cast<std::array<Byte, sizeof(ReturnType)> *>(&object);
 
         OperationResult result = static_cast<OperationResult>(i2c_master_read_from_device(i2cModuleNum,
                                                                                           address,
@@ -87,12 +87,12 @@ class IIC {
         if (result != OperationResult::OK) {
             logger.LogError("read from device " + std::to_string(address) +
                             " unsuccessful, error: " + std::to_string(static_cast<int>(result)));
-            return { false, ReturnType{} };
+            return std::nullopt;
         }
 
-        return { true, retval };
+        return object;
     }
-    std::vector<Byte> Read(PeripheralAddress address, size_t bytes_to_read, size_t timeout_ms) noexcept
+    std::optional<std::vector<Byte>> Read(PeripheralAddress address, size_t bytes_to_read, size_t timeout_ms) noexcept
     {
         std::vector<Byte> buffer;
         buffer.resize(bytes_to_read);
@@ -102,14 +102,15 @@ class IIC {
 
         if (result != ESP_OK) {
             logger.LogError("i2c read from device unsuccessful, error: " + std::to_string(result));
+            return std::nullopt;
         }
 
         return buffer;
     }
     template<typename ReturnType>
-    std::pair<bool, ReturnType> WriteAndRead(PeripheralAddress address,
-                                             BufferT const    &data_to_be_sent,
-                                             size_t            timeout_ms) noexcept
+    std::optional<ReturnType> WriteAndRead(PeripheralAddress address,
+                                           BufferT const    &data_to_be_sent,
+                                           size_t            timeout_ms) noexcept
     {
         std::array<uint8_t, sizeof(ReturnType)> read_buffer{};
 
@@ -131,7 +132,7 @@ class IIC {
 
     bool CheckIfSlaveWithAddressIsOnLine(PeripheralAddress address) noexcept
     {
-        Byte dummy{0};
+        Byte dummy{ 0 };
         auto result = i2c_master_write_to_device(i2cModuleNum, address, &dummy, 1, 0);
         return result == ESP_OK ? true : false;
     }
@@ -139,7 +140,7 @@ class IIC {
   protected:
   private:
     IIC(Role role, int sda_pin_num, int scl_pin_num, size_t clock_freq_hz) noexcept
-      : logger{ "i2c", ProjCfg::ComponentLogSwitch::IIC }
+      : logger{ "i2c", ProjCfg::EnableLogForComponent::IIC }
     {
         i2c_config_t conf{};
 
