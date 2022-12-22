@@ -6,6 +6,8 @@
 #include "queue.hpp"
 #include "task.hpp"
 #include "semaphore.hpp"
+
+//todo: implement internal timer to not bother user about delays
 class Board {
   public:
     using Byte             = uint8_t;
@@ -14,7 +16,7 @@ class Board {
     using ADCValueT        = uint16_t;
     using InternalCounterT = uint32_t;
     // todo: delete from here after tests
-    using CommandArgsT    = std::vector<Byte>;
+    using CommandArgsT    = Byte;
     using AllPinsVoltages = std::array<uint16_t, 32>;
     struct PinsVoltages {
         AddressT        boardAddress;
@@ -47,9 +49,9 @@ class Board {
         voltageTableCheckTask.Start();
     }
 
-    AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
-    std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
-    void                       SetNewAddress(AddressT i2c_address) noexcept { }
+    [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
+    [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
+    void SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
 
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
     {
@@ -62,7 +64,7 @@ class Board {
     }
     std::optional<ADCValueT> GetPinVoltage(Byte pin) noexcept
     {
-        auto adc_val = SendCmdAndReadResponse<ADCValueT>(checkADC,
+        auto adc_val = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
                                                          CommandArgsT{ pin },
                                                          VoltageCheckCmd::timeToWaitForResponseOnePinMs);
         if (not adc_val) {
@@ -101,6 +103,34 @@ class Board {
         }
     }
 
+    std::optional<std::vector<Byte>> UnitTestCommunication(std::vector<Byte> const &data) noexcept
+    {
+        auto response = dataLink.UnitTestCommunication(data);
+
+        if (not response)
+            return std::nullopt;
+
+        if (data != *response) {
+            console.LogError("slave answer is different from original data: ");
+
+            auto counter = 0;
+
+            for (auto const value : data) {
+                console.LogError("orig: " + std::to_string(value) +
+                                 " || response: " + std::to_string(response->at(counter)));
+
+                counter++;
+            }
+
+            return std::nullopt;
+        }
+        else {
+            console.Log("slave responded successfully");
+        }
+
+        return response;
+    }
+
   protected:
     struct VoltageCheckCmd {
         enum SpecialMeasurements : Byte {
@@ -109,8 +139,8 @@ class Board {
             MeasureGND
         };
         using PinNum                                               = uint8_t;
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 1000;
-        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 200;
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 35;
+        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
         PinNum pin;
     };
     bool SendCmd(Byte cmd, CommandArgsT args) noexcept { return dataLink.SendCommand(cmd, args); }

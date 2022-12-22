@@ -12,8 +12,9 @@ class DataLink {
     using Byte         = uint8_t;
     using AddressT     = Byte;
     using CommandT     = Byte;
-    using CommandArgsT = std::vector<Byte>;
+    using CommandArgsT = Byte;
     using IIC_Result   = IIC::OperationResult;
+    using UnitTestType = std::array<Byte, 10>;
 
     DataLink(AddressT board_address)
       : logger{ "dataLink, Addr:" + std::to_string(board_address), ProjCfg::EnableLogForComponent::IOBoards }
@@ -22,13 +23,11 @@ class DataLink {
     { }
 
     AddressT GetAddres() const noexcept { return boardAddress; }
-
     void SetNewAddress(AddressT new_address) noexcept
     {
         boardAddress = new_address;
         logger.SetNewTag(std::to_string(new_address));
     }
-
     bool SendCommand(CommandT cmd, CommandArgsT args)
     {
         // read before write to make sure output buffer is empty
@@ -36,63 +35,52 @@ class DataLink {
             return false;
 
         // write command
-        auto result = driver->Write(boardAddress, std::vector{ cmd }, xferTimeout);
+        auto result = driver->Write(boardAddress, std::vector{ cmd, args }, xferTimeout);
 
         if (result != IIC_Result::OK) {
             return false;
         }
 
-        Task::DelayMs(delayBeforeCmdAckCheck);
+        Task::DelayMs(delayBeforeCommandAckCheck);
 
         // read answer, respected commands are acknowledged with reversed bits in data byte
-        auto response = driver->Read<Byte>(boardAddress, xferTimeout);
+        auto response = driver->Read<CommandAndArgs>(boardAddress, xferTimeout);
         if (not response)
             return false;
 
-        if (not CheckIfBoardRespectedCommand(cmd, *response)) {
+        if (not CheckIfBoardRespectedCommand(cmd, response->cmd)) {
             logger.LogError("slave has not respected command: " + std::to_string(cmd) +
-                            ", and answered: " + std::to_string(*response));
+                            ", and answered: " + std::to_string(response->cmd));
             return false;
         }
         else {
             logger.Log("slave respected command: " + std::to_string(cmd));
         }
 
-//        Task::DelayMs(10);
-
-        // write arguments
-        if (args.size() == 0)
-            return true;
-
-        result = driver->Write(boardAddress, args, xferTimeout);
-        Task::DelayMs(delayBeforeArgsAckCheck);
-
-        auto args_answer = driver->Read(boardAddress, args.size(), xferTimeout);
-        if (not args_answer) {
-            logger.LogError("Error upon getting response to arguments for command: " + std::to_string(cmd));
-            return false;
-        }
-
-        if (args != *args_answer) {
-            std::string received_args;
-            for (auto const arg : *args_answer) {
-                received_args += std::to_string(arg) += ' ';
-            }
-
-            std::string sent_args;
-            for (auto const arg : args) {
-                sent_args += std::to_string(arg);
-            }
-
-            logger.LogError("Board has not acknowledged arguments for command: " + std::to_string(cmd) +
-                            " (arguments: " + sent_args + "). Responded to arguments with: " + received_args);
+        if (args != response->args) {
+            logger.LogError("Board has not acknowledged arguments for command: " + std::to_string(cmd) + " (arguments: " +
+                            std::to_string(args) + "). Responded to arguments with: " + std::to_string(response->args));
 
             return false;
         }
 
         return true;
     }
+    std::optional<std::vector<Byte>> UnitTestCommunication(std::vector<Byte> const & data) noexcept
+    {
+        FlushOutputIOBoardBuffer();
 
+        if (auto result = driver->Write(boardAddress, data, xferTimeout) != IIC_Result::OK) {
+            logger.LogError("transfer unsuccessful, error: " + std::to_string(result));
+            return std::nullopt;
+        }
+
+        Task::DelayMs(100);
+
+        auto retval = driver->Read(boardAddress, data.size(), xferTimeout);
+
+        return retval;
+    }
     template<typename ReturnType>
     std::optional<ReturnType> ReadBoardAnswer() noexcept
     {
@@ -100,6 +88,10 @@ class DataLink {
     }
 
   protected:
+    struct CommandAndArgs {
+        CommandT     cmd;
+        CommandArgsT args;
+    };
     bool FlushOutputIOBoardBuffer() noexcept
     {
         auto try_num = flushReadsMaxCount;
@@ -128,8 +120,7 @@ class DataLink {
     auto constexpr static xferTimeout                          = 500;
     auto constexpr static flushReadsMaxCount                   = 100;
     auto constexpr static valueIndicatesEmptyBoardOutputBuffer = 0xff;
-    auto constexpr static delayBeforeCmdAckCheck               = 5;
-    auto constexpr static delayBeforeArgsAckCheck              = 3;
+    auto constexpr static delayBeforeCommandAckCheck           = 3;
     SmartLogger          logger;
     std::shared_ptr<IIC> driver;
     AddressT             boardAddress;
