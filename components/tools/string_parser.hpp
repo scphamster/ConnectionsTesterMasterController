@@ -5,8 +5,8 @@
 
 class StringParser {
   public:
-    std::pair<std::string, std::string::size_type> static GetNextWord(std::string            str,
-                                                                      std::string::size_type from_pos = 0)
+    std::pair<std::string, std::string::size_type> static GetNextWord(std::string                  str,
+                                                                      std::string::difference_type from_pos = 0)
     {
         auto char_it = str.begin() + from_pos;
         if (char_it >= str.end())
@@ -56,6 +56,4 @@ class StringParser {
                 return string_list;
         }
     }
-
-
 };

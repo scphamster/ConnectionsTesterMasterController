@@ -15,25 +15,30 @@ enum BluetoothCfg {
 };
 
 enum BoardsConfigs {
-    IICSpeedHz = 50000,
+    IICSpeedHz = 100000,
     SDA_Pin    = 33,
     SCL_Pin    = 32,
+    NumberOfPins = 32
 };
 
 enum Tasks {
     VoltageCheckTaskPio           = 6,
     VoltageCheckTaskStackSize     = 4000,
     MainMeasurementsTaskPrio      = 5,
-    MainMeasurementsTaskStackSize = 4000
+    MainMeasurementsTaskStackSize = 5000
 };
 
 enum class EnableLogForComponent : bool {
     IIC      = false,
-    IOBoards = false,
-    Main     = false,
+    IOBoards = true,
+    Main     = true,
     BluetoothSPP = false,
     BluettothMain = false
 
+};
+
+enum TimeoutMs {
+    VoltagesQueueReceive = 1000
 };
 
 uint8_t const static high_voltage_reference_select_pin = 20;

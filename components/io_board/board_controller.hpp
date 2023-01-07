@@ -7,9 +7,11 @@
 #include "task.hpp"
 #include "semaphore.hpp"
 
-//todo: implement internal timer to not bother user about delays
+// todo: implement internal timer to not bother user about delays
 class Board {
   public:
+    auto static constexpr pinCount = ProjCfg::BoardsConfigs::NumberOfPins;
+
     using Byte             = uint8_t;
     using PinNumT          = size_t;
     using AddressT         = Byte;
@@ -17,7 +19,7 @@ class Board {
     using InternalCounterT = uint32_t;
     // todo: delete from here after tests
     using CommandArgsT    = Byte;
-    using AllPinsVoltages = std::array<uint16_t, 32>;
+    using AllPinsVoltages = std::array<ADCValueT, pinCount>;
     struct PinsVoltages {
         AddressT        boardAddress;
         AllPinsVoltages voltagesArray;
@@ -52,10 +54,23 @@ class Board {
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     void SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
+    void SetVoltageAtPin(Byte pin) noexcept
+    {
+        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::SetPinVoltage), CommandArgsT{ pin })) {
+            console.LogError("Voltage setting on pin " + std::to_string(pin) + " unsuccessful");
+        }
+    }
+    void SetOutputVoltageValue(OutputVoltage value) noexcept
+    {
+        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::SetOutputVoltage),
+                        CommandArgsT{ static_cast<Byte>(value) })) {
+            console.LogError("Voltage setting unsuccessful");
+        }
+    }
 
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
     {
-        if (not SendCmd(checkTimerCmd)) {
+        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::GetInternalCounter))) {
             console.LogError("Get counter value command not succeeded");
             return std::nullopt;
         };
@@ -87,20 +102,6 @@ class Board {
         }
 
         return voltages;
-    }
-
-    void SetVoltageAtPin(Byte pin) noexcept
-    {
-        if (not SendCmd(setPinVoltageCmd, CommandArgsT{ pin })) {
-            console.LogError("Voltage setting on pin " + std::to_string(pin) + " unsuccessful");
-        }
-    }
-    void SetOutputVoltageValue(OutputVoltage value) noexcept
-    {
-        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::SetOutputVoltage),
-                        CommandArgsT{ static_cast<Byte>(value) })) {
-            console.LogError("Voltage setting unsuccessful");
-        }
     }
 
     std::optional<std::vector<Byte>> UnitTestCommunication(std::vector<Byte> const &data) noexcept
@@ -139,7 +140,7 @@ class Board {
             MeasureGND
         };
         using PinNum                                               = uint8_t;
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 35;
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 13;
         TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
         PinNum pin;
     };
@@ -153,7 +154,7 @@ class Board {
             return std::nullopt;
         }
 
-        Task::DelayMs(delay_for_response_ms);
+        Task::DelayMsUntil(delay_for_response_ms);
 
         return dataLink.ReadBoardAnswer<ReturnType>();
     }
@@ -167,9 +168,15 @@ class Board {
     [[noreturn]] void GetAllPinsVoltagesTask() noexcept
     {
         while (true) {
-            getAllPinsVoltagesSemaphore->TakeBlockInfinitely();
+            getAllPinsVoltagesSemaphore->Take_BlockInfinitely();
 
             auto result = GetAllPinsVoltages();
+
+            if (result == std::nullopt) {
+                console.LogError("board with adress: " + std::to_string(dataLink.GetAddres()) +
+                                 " all pins voltages bad result!");
+                continue;
+            }
 
             allPinsVoltagesTableQueue->Send(PinsVoltages{ dataLink.GetAddres(), *result });
         }
@@ -186,8 +193,4 @@ class Board {
     std::shared_ptr<QueueT>    allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
     Task                       voltageTableCheckTask;
-
-    auto constexpr static setPinVoltageCmd = 0xC1;
-    auto constexpr static checkTimerCmd    = 0xC2;
-    auto constexpr static checkADC         = 0xC3;
 };

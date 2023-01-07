@@ -137,7 +137,7 @@ class BluetoothSPP {
     {
         std::array<char, 18> bda_str;
         logger.Log("Own Address is: " +
-                    std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
+                   std::string{ bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str.data(), bda_str.size()) });
     }
     void StartTasks() noexcept { sppTask.Start(); }
     template<size_t NumberOfBytes>
@@ -249,7 +249,7 @@ class BluetoothSPP {
     }
     [[noreturn]] void SPPTask() noexcept
     {
-        std::array<char,    18> bda_str{};
+        std::array<char, 18> bda_str{};
 
         while (true) {
             auto spp_msg = sppQueue.Receive();
@@ -279,9 +279,8 @@ class BluetoothSPP {
             case Event::Close: logger.Log("SPP Close event"); break;
             case Event::Start:
                 if (param.start.status == ESP_SPP_SUCCESS) {
-                    logger.Log("SPP start event, handle=" + std::to_string(param.start.handle) +
-                                " security id:" + std::to_string(param.start.sec_id) +
-                                " server channel:" + std::to_string(param.start.scn));
+                    logger.Log("SPP start event, handle=" + std::to_string(param.start.handle) + " security id:" +
+                               std::to_string(param.start.sec_id) + " server channel:" + std::to_string(param.start.scn));
 
                     connectionHandle = param.start.handle;
                 }
@@ -292,8 +291,8 @@ class BluetoothSPP {
             case Event::ClientInitiated: logger.Log("Client initiated connection!"); break;
             case Event::ServerConnectionOpen:
                 logger.Log("Server open event! Status:" + std::to_string(param.srv_open.status) +
-                            " Handle:" + std::to_string(param.srv_open.handle) +
-                            " Peer address:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
+                           " Handle:" + std::to_string(param.srv_open.handle) +
+                           " Peer address:" + bda2str(param.srv_open.rem_bda, bda_str.data(), sizeof(bda_str)));
 
                 if (param.srv_open.status == ESP_SPP_SUCCESS) {
                     ioFileDescriptor = param.srv_open.fd;
