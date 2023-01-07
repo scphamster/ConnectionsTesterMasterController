@@ -43,6 +43,7 @@ class Apparatus {
         EnableOutputForPin,
         CheckConnections,
         GetAllBoardsIds,
+        GetInternalCounter,
         Unknown
     };
     struct SetPinVoltageCmd {
@@ -184,16 +185,13 @@ class Apparatus {
             return;
         }
 
-        auto board_it = std::find_if(ioBoards.begin(), ioBoards.end(), [board_address](auto board) {
-            return board->GetAddress() == board_address;
-        });
-
-        if (board_it == ioBoards.end()) {
-            console.LogError("No board found with address: " + std::to_string(board_address));
+        auto board = FindBoard(board_address);
+        if (not board) {
+            console.LogError("Board with address: " + std::to_string(board_address) + " not found");
             return;
         }
 
-        (*board_it)->SetVoltageAtPin(pin);
+        (*board)->SetVoltageAtPin(pin);
 
         auto voltage_tables_from_all_boards = MeasureAll();
         if (voltage_tables_from_all_boards == std::nullopt) {
@@ -203,8 +201,7 @@ class Apparatus {
 
         PrintAllVoltagesFromTable(*voltage_tables_from_all_boards);
 
-        std::string bt_string =
-          "CONNECT " + std::to_string((*board_it)->GetAddress()) + ':' + std::to_string(pin) + " -> ";
+        std::string bt_string = "CONNECT " + std::to_string((*board)->GetAddress()) + ':' + std::to_string(pin) + " -> ";
 
         for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
             std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
@@ -221,6 +218,26 @@ class Apparatus {
 
         bt_string.append("END\n");
         console.Log(bt_string);
+    }
+    void GetBoardCounter(BoardAddrT board_addr)
+    {
+        auto board = FindBoard(board_addr);
+        if (not board) {
+            console.LogError("Board not found : " + std::to_string(board_addr));
+            return;
+        }
+
+        auto counter_value = (*board)->GetBoardCounterValue();
+        if (not counter_value) {
+            console.LogError("Get board counter value command unsuccessful");
+            return;
+        }
+
+        std::string counter_value_answer =
+          "TIMER " + std::to_string(board_addr) + " dummyarg -> " + std::to_string(*counter_value) + " END\n";
+
+        bluetooth->Write(counter_value_answer);
+        console.Log(counter_value_answer);
     }
     std::optional<std::vector<PinsVoltages>> MeasureAll() noexcept
     {
@@ -243,17 +260,18 @@ class Apparatus {
     }
 
     // helpers
-    void PrintAllVoltagesFromTable(std::vector<PinsVoltages> const &voltages_tables)
+    std::optional<std::shared_ptr<Board>> FindBoard(BoardAddrT board_address) noexcept
     {
-        for (auto const &table : voltages_tables) {
-            console.Log("table for board: " + std::to_string(table.boardAddress));
+        auto board_it = std::find_if(ioBoards.begin(), ioBoards.end(), [board_address](auto board) {
+            return board->GetAddress() == board_address;
+        });
 
-            auto pin_counter = 0;
-            for (auto pin_voltage : table.voltagesArray) {
-                console.Log("   pin:" + std::to_string(pin_counter) + " v=" + std::to_string(pin_voltage));
-                pin_counter++;
-            }
+        if (board_it == ioBoards.end()) {
+            //            console.LogError("No board found with address: " + std::to_string(board_address));
+            return std::nullopt;
         }
+
+        return *board_it;
     }
 
     void StartVoltageMeasurementOnAllBoards()
@@ -333,6 +351,23 @@ class Apparatus {
             }
             else if (words.at(0) == "getboards") {
                 return { UserCommand::GetAllBoardsIds, std::vector{ 0 } };
+            }
+            else if (words.at(0) == "counter") {
+                if (words.size() == 0) {
+                    console.LogError("No board address argument provided for command: 'counter'");
+                    continue;
+                }
+
+                int board_addr = -1;
+                try {
+                    board_addr = std::stoi(words.at(1));
+                }
+                catch(...) {
+                    console.LogError("bad argument for command: 'counter' : " + words.at(1));
+                    continue;
+                }
+
+                return {UserCommand::GetInternalCounter, std::vector{board_addr}};
             }
 
             return { UserCommand::Unknown, std::vector<int>() };
@@ -433,6 +468,18 @@ class Apparatus {
             Task::DelayMs(100);
         }
     }
+    void PrintAllVoltagesFromTable(std::vector<PinsVoltages> const &voltages_tables) noexcept
+    {
+        for (auto const &table : voltages_tables) {
+            console.Log("table for board: " + std::to_string(table.boardAddress));
+
+            auto pin_counter = 0;
+            for (auto pin_voltage : table.voltagesArray) {
+                console.Log("   pin:" + std::to_string(pin_counter) + " v=" + std::to_string(pin_voltage));
+                pin_counter++;
+            }
+        }
+    }
 
     // tasks
     [[noreturn]] void CommandDirectorTask() noexcept
@@ -460,6 +507,9 @@ class Apparatus {
             case UserCommand::GetAllBoardsIds: {
                 SendAllBoardsIds();
             } break;
+            case UserCommand::GetInternalCounter: {
+                GetBoardCounter(args.at(0));
+            }
             default: break;
             }
         }

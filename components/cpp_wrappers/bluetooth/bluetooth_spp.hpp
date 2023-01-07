@@ -228,7 +228,8 @@ class BluetoothSPP {
             }
 
             if (bytes_read < 0) {
-                logger.Log("SPP File descriptor read failed");
+                logger.LogError("SPP File descriptor read failed");
+                Task::DelayMs(500);
                 std::terminate();
                 break;
             }
@@ -315,7 +316,7 @@ class BluetoothSPP {
       : dataManagementMode{ mode }
       , securityMode{ security }
       , role{ new_role }
-      , logger{ "bluetooth spp:", ProjCfg::EnableLogForComponent::BluetoothSPP }
+      , logger{ "BT:SPP:", ProjCfg::EnableLogForComponent::BluetoothSPP }
       , sppQueue{ ProjCfg::SppQueueLen, "spp queue" }
       , sppReaderTask{ [this]() { ReaderTask(); },
                        ProjCfg::SppReaderTaskStackSize,
