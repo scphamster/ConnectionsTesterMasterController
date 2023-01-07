@@ -134,6 +134,8 @@ class Apparatus {
             Task::DelayMs(1);
 
             auto voltage_tables_from_all_boards = MeasureAll();
+            board->DisableOutput();
+
             if (voltage_tables_from_all_boards == std::nullopt) {
                 console.LogError("Unsuccessful!");
                 return;
@@ -165,6 +167,10 @@ class Apparatus {
     void FindAllConnections() noexcept
     {
         console.Log("Executing command: FindAllConnections");
+
+        for (auto board : ioBoards) {
+            board->DisableOutput();
+        }
 
         for (auto board : ioBoards) {
             FindAllConnectionsForBoard(board);
@@ -299,7 +305,7 @@ class Apparatus {
                 }
             }
             else if (words.at(0) == "check") {
-                if (words.size() == 1)
+                if (words.size() == 2)
                     return { UserCommand::CheckConnections, std::vector<int>() };
                 else if (words.size() == 3) {
                     int boardId = -1;

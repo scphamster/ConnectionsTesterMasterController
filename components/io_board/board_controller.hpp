@@ -26,8 +26,8 @@ class Board {
     };
     using QueueT = Queue<PinsVoltages>;
     enum class Command {
-        GetInternalCounter = 0xC1,
-        SetPinVoltage      = 0xC2,
+        SetPinVoltage      = 0xC1,
+        GetInternalCounter = 0xC2,
         GetPinVoltage      = 0xC3,
         SetOutputVoltage   = 0xc4
     };
@@ -66,6 +66,10 @@ class Board {
                         CommandArgsT{ static_cast<Byte>(value) })) {
             console.LogError("Voltage setting unsuccessful");
         }
+    }
+    void DisableOutput()
+    {
+        SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll));
     }
 
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
@@ -143,6 +147,11 @@ class Board {
         TickType_t static constexpr timeToWaitForResponseAllPinsMs = 13;
         TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
         PinNum pin;
+    };
+    struct VoltageSetCmd {
+        enum class Special {
+            DisableAll = 254
+        };
     };
     bool SendCmd(Byte cmd, CommandArgsT args) noexcept { return dataLink.SendCommand(cmd, args); }
     bool SendCmd(Byte cmd) noexcept { return SendCmd(cmd, CommandArgsT{}); }
