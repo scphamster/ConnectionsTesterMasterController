@@ -139,7 +139,7 @@ class Apparatus {
         }
     }
 
-    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board, ConnectionAnalysis analysis_type)
+    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board, ConnectionAnalysis analysis_type, bool sequential)
     {
         constexpr auto pin_count_at_board = Board::pinCount;
 
@@ -147,7 +147,7 @@ class Apparatus {
             board->SetVoltageAtPin(pin);
             Task::DelayMs(1);
 
-            auto voltage_tables_from_all_boards = MeasureAll();
+            auto voltage_tables_from_all_boards = MeasureAll(sequential);
             board->DisableOutput();
 
             if (voltage_tables_from_all_boards == std::nullopt) {
@@ -212,7 +212,7 @@ class Apparatus {
             Task::DelayMs(3);
         }
     }
-    void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type) noexcept
+    void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type, bool sequential) noexcept
     {
         console.Log("Executing command: FindAndAnalyzeAllConnections");
 
@@ -221,7 +221,7 @@ class Apparatus {
         }
 
         for (auto board : ioBoards) {
-            FindAndAnalyzeAllConnectionsForBoard(board, analysis_type);
+            FindAndAnalyzeAllConnectionsForBoard(board, analysis_type, sequential);
         }
     }
     void FindConnectionsAtBoardForPin(BoardAddrT board_address, PinNumT pin)
@@ -240,7 +240,7 @@ class Apparatus {
 
         (*board)->SetVoltageAtPin(pin);
 
-        auto voltage_tables_from_all_boards = MeasureAll();
+        auto voltage_tables_from_all_boards = MeasureAll(true);
         if (voltage_tables_from_all_boards == std::nullopt) {
             console.LogError("Unsuccessful");
             return;
@@ -287,9 +287,9 @@ class Apparatus {
         bluetooth->Write(counter_value_answer);
         console.Log(counter_value_answer);
     }
-    std::optional<std::vector<PinsVoltages>> MeasureAll() noexcept
+    std::optional<std::vector<PinsVoltages>> MeasureAll(bool sequential) noexcept
     {
-        StartVoltageMeasurementOnAllBoards();
+        StartVoltageMeasurementOnAllBoards(sequential);
 
         std::vector<PinsVoltages> all_boards_voltages;
 
@@ -342,7 +342,7 @@ class Apparatus {
 
         return (static_cast<VoltageT>(adc_value) / 1024) * reference;
     }
-    void StartVoltageMeasurementOnAllBoards(bool sequential = true)
+    void StartVoltageMeasurementOnAllBoards(bool sequential)
     {
         for (auto const &semaphore : boardsSemaphores) {
             semaphore->Give();
@@ -411,6 +411,15 @@ class Apparatus {
 
                     if (words.size() == 2) {
                         return { user_command, std::vector<int>() };
+                    }
+
+                    if (words.size() == 3) {
+                        if (words.at(2) == "sequential") {
+                            return {user_command, std::vector<int>{1}};
+                        }
+                        else {
+                            return {UserCommand::Unknown, std::vector<int>()};
+                        }
                     }
 
                     if (words.size() != 4) {
@@ -603,21 +612,27 @@ class Apparatus {
             switch (command) {
             case UserCommand::CheckConnections: {
                 if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean);
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, false);
+                else if (args.size() == 1)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, true);
                 else {
                     FindConnectionsAtBoardForPin(args.at(0), args.at(1));
                 }
             } break;
             case UserCommand::CheckVoltages: {
                 if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage);
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, false);
+                else if (args.size() == 1)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, true);
                 else {
                     FindConnectionsAtBoardForPin(args.at(0), args.at(1));
                 }
             } break;
             case UserCommand::CheckResistances: {
                 if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance);
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, false);
+                else if (args.size() == 1)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, true);
                 else {
                     FindConnectionsAtBoardForPin(args.at(0), args.at(1));
                 }
