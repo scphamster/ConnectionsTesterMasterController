@@ -12,7 +12,6 @@
 #include "semaphore.hpp"
 #include "bluetooth.hpp"
 #include "string_parser.hpp"
-
 class Apparatus {
   public:
     using Byte               = uint8_t;
@@ -21,6 +20,10 @@ class Apparatus {
     using OutputVoltageLevel = Board::OutputVoltage;
     using QueueT             = Queue<PinsVoltages>;
     using PinNumT            = Board::PinNumT;
+    using CircuitParamT      = float;
+    using VoltageT           = CircuitParamT;
+    using ResistanceT        = CircuitParamT;
+
     void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
     {
         _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue) } };
@@ -42,9 +45,17 @@ class Apparatus {
         MeasureAll,
         EnableOutputForPin,
         CheckConnections,
+        CheckResistances,
+        CheckVoltages,
         GetAllBoardsIds,
         GetInternalCounter,
+        GetTaskStackWatermark,
         Unknown
+    };
+    enum class ConnectionAnalysis {
+        SimpleBoolean,
+        Voltage,
+        Resistance
     };
     struct SetPinVoltageCmd {
         enum SpecialPinConfigurations : Byte {
@@ -85,6 +96,7 @@ class Apparatus {
                 console.Log("Board with address: " + std::to_string(board->GetAddress()) +
                             " properly answered for InternalCounter Command, value = " + std::to_string(*counter_value));
             }
+            board->SetOutputVoltageValue(OutputVoltageLevel::_07);
         }
     }
     void SendAllBoardsIds() noexcept
@@ -126,7 +138,8 @@ class Apparatus {
             board->SetOutputVoltageValue(level);
         }
     }
-    void FindAllConnectionsForBoard(std::shared_ptr<Board> board)
+
+    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board, ConnectionAnalysis analysis_type)
     {
         constexpr auto pin_count_at_board = Board::pinCount;
 
@@ -142,7 +155,27 @@ class Apparatus {
                 return;
             }
 
-            std::string bt_string = "CONNECT " + std::to_string(board->GetAddress()) + ':' + std::to_string(pin) + " -> ";
+            std::string response_header;
+
+            switch (analysis_type) {
+            case ConnectionAnalysis::SimpleBoolean: {
+                response_header = "CONNECT";
+            } break;
+            case ConnectionAnalysis::Voltage: {
+                response_header = "VOLTAGES";
+            } break;
+            case ConnectionAnalysis::Resistance: {
+                response_header = "RESISTANCES";
+            } break;
+            default: {
+                console.LogError("Bad analysis type for find connections command: " +
+                                 std::to_string(static_cast<int>(analysis_type)));
+                return;
+            }
+            }
+
+            std::string answer_to_master =
+              response_header + ' ' + std::to_string(board->GetAddress()) + ':' + std::to_string(pin) + " -> ";
 
             for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
                 std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
@@ -150,31 +183,45 @@ class Apparatus {
                 auto pin_counter = 0;
                 for (auto voltage : voltage_table_from_board.voltagesArray) {
                     if (voltage > 0) {
-                        bt_string.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
+                        if (analysis_type == ConnectionAnalysis::SimpleBoolean) {
+                            answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
+                        }
+                        else if (analysis_type == ConnectionAnalysis::Resistance) {
+                            answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + '(' +
+                                                    StringParser::ConvertFpValueWithPrecision(
+                                                      CalculateConnectionResistanceFromAdcValue(voltage),
+                                                      1) +
+                                                    ") ");
+                        }
+                        else if (analysis_type == ConnectionAnalysis::Voltage) {
+                            answer_to_master.append(
+                              board_affinity + ':' + std::to_string(pin_counter) + '(' +
+                              StringParser::ConvertFpValueWithPrecision(CalculateVoltageFromAdcValue(voltage), 2) + ") ");
+                        }
                     }
 
                     pin_counter++;
                 }
             }
 
-            bt_string.append("END\n");
+            answer_to_master.append("END\n");
 
-            console.Log(bt_string);
-            bluetooth->Write(bt_string);
+            console.Log(answer_to_master);
+            bluetooth->Write(answer_to_master);
 
             Task::DelayMs(3);
         }
     }
-    void FindAllConnections() noexcept
+    void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type) noexcept
     {
-        console.Log("Executing command: FindAllConnections");
+        console.Log("Executing command: FindAndAnalyzeAllConnections");
 
         for (auto board : ioBoards) {
             board->DisableOutput();
         }
 
         for (auto board : ioBoards) {
-            FindAllConnectionsForBoard(board);
+            FindAndAnalyzeAllConnectionsForBoard(board, analysis_type);
         }
     }
     void FindConnectionsAtBoardForPin(BoardAddrT board_address, PinNumT pin)
@@ -185,7 +232,7 @@ class Apparatus {
             return;
         }
 
-        auto board = FindBoard(board_address);
+        auto board = FindBoardWithAddress(board_address);
         if (not board) {
             console.LogError("Board with address: " + std::to_string(board_address) + " not found");
             return;
@@ -219,9 +266,10 @@ class Apparatus {
         bt_string.append("END\n");
         console.Log(bt_string);
     }
+
     void GetBoardCounter(BoardAddrT board_addr)
     {
-        auto board = FindBoard(board_addr);
+        auto board = FindBoardWithAddress(board_addr);
         if (not board) {
             console.LogError("Board not found : " + std::to_string(board_addr));
             return;
@@ -260,7 +308,7 @@ class Apparatus {
     }
 
     // helpers
-    std::optional<std::shared_ptr<Board>> FindBoard(BoardAddrT board_address) noexcept
+    std::optional<std::shared_ptr<Board>> FindBoardWithAddress(BoardAddrT board_address) noexcept
     {
         auto board_it = std::find_if(ioBoards.begin(), ioBoards.end(), [board_address](auto board) {
             return board->GetAddress() == board_address;
@@ -273,20 +321,44 @@ class Apparatus {
 
         return *board_it;
     }
+    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value)
+    {
+        CircuitParamT constexpr output_resistance = 200;
+        CircuitParamT constexpr input_resistance  = 1200;
+        CircuitParamT constexpr shunt_resistance  = 330;
+        CircuitParamT constexpr output_voltage    = 0.7f;
+        CircuitParamT constexpr calibration_value = 120.f;
 
-    void StartVoltageMeasurementOnAllBoards()
+        // todo: shrink to single line
+        auto voltage            = CalculateVoltageFromAdcValue(adc_value);
+        auto circuit_current    = voltage / shunt_resistance;
+        auto overall_resistance = output_voltage / circuit_current;
+        auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance + calibration_value;
+        return test_resistance;
+    }
+    VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value)
+    {
+        VoltageT constexpr reference = 1.1;
+
+        return (static_cast<VoltageT>(adc_value) / 1024) * reference;
+    }
+    void StartVoltageMeasurementOnAllBoards(bool sequential = true)
     {
         for (auto const &semaphore : boardsSemaphores) {
             semaphore->Give();
+            if (sequential) {
+                Task::DelayMs(Board::VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
+            }
         }
     }
 
     std::pair<UserCommand, std::vector<int>> WaitForUserCommand() noexcept
-    {   // todo: make full parser
+    {
         while (true) {
             std::string cmd;
             cmd += *fromUserInputQ->Receive();
 
+            // make sure whole command arrived, not sure if this needed
             for (;;) {
                 auto result = fromUserInputQ->Receive(pdMS_TO_TICKS(10));
                 if (result) {
@@ -295,11 +367,9 @@ class Apparatus {
                 else
                     break;
             }
-
-            auto words = StringParser::GetWords(cmd);
-
             console.Log("Command arrived: " + cmd);
 
+            auto words = StringParser::GetWords(cmd);
             if (words.at(0) == "set") {
                 int argument{ -1 };
 
@@ -323,9 +393,50 @@ class Apparatus {
                 }
             }
             else if (words.at(0) == "check") {
-                if (words.size() == 2)
-                    return { UserCommand::CheckConnections, std::vector<int>() };
-                else if (words.size() == 3) {
+                if (words.size() >= 2) {
+                    auto second_word = words.at(1);
+
+                    auto user_command = UserCommand();
+
+                    if (second_word == "connections")
+                        user_command = UserCommand::CheckConnections;
+                    else if (second_word == "resistances")
+                        user_command = UserCommand::CheckResistances;
+                    else if (second_word == "voltages")
+                        user_command = UserCommand::CheckVoltages;
+                    else {
+                        console.LogError("Unknown command: " + second_word);
+                        return {UserCommand::Unknown, std::vector<int>()};
+                    }
+
+                    if (words.size() == 2) {
+                        return { user_command, std::vector<int>() };
+                    }
+
+                    if (words.size() != 4) {
+                        console.LogError("Bad 'check' command -> number of arguments is not 2 nor 4");
+                        return { UserCommand::Unknown, std::vector<int>() };
+                    }
+
+                    int board_argument;
+                    try {
+                        board_argument = std::stoi(words.at(2));
+                    } catch (...) {
+                        console.LogError("Bad board argument for command 'check': " + words.at(2));
+                        return { UserCommand::Unknown, std::vector<int>() };
+                    }
+
+                    int pin_argument;
+                    try {
+                        pin_argument = std::stoi(words.at(3));
+                    } catch (...) {
+                        console.LogError("Bad pin argument for command 'check': " + words.at(3));
+                        return { UserCommand::Unknown, std::vector<int>() };
+                    }
+
+                    return { user_command, std::vector(board_argument, pin_argument) };
+                }
+                else if (words.size() == 4) {
                     int boardId = -1;
 
                     try {
@@ -361,13 +472,15 @@ class Apparatus {
                 int board_addr = -1;
                 try {
                     board_addr = std::stoi(words.at(1));
-                }
-                catch(...) {
+                } catch (...) {
                     console.LogError("bad argument for command: 'counter' : " + words.at(1));
                     continue;
                 }
 
-                return {UserCommand::GetInternalCounter, std::vector{board_addr}};
+                return { UserCommand::GetInternalCounter, std::vector{ board_addr } };
+            }
+            else if (words.at(0) == "stack") {
+                return { UserCommand::GetTaskStackWatermark, std::vector<int>() };
             }
 
             return { UserCommand::Unknown, std::vector<int>() };
@@ -484,23 +597,31 @@ class Apparatus {
     // tasks
     [[noreturn]] void CommandDirectorTask() noexcept
     {
-        //                UnitTestAllRead();
-        //        UnitTestGetCounter();
-        //        UnitTestEnableOutputAtPin();
-        //                UnitTestGetVoltageFromPin();
-        //        UnitTestTwoCommands();
-        //        UnitTestCommunication(0x25);
         while (true) {
             auto [command, args] = WaitForUserCommand();
 
             switch (command) {
             case UserCommand::CheckConnections: {
                 if (args.size() == 0)
-                    FindAllConnections();
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean);
                 else {
                     FindConnectionsAtBoardForPin(args.at(0), args.at(1));
                 }
             } break;
+            case UserCommand::CheckVoltages: {
+                if (args.size() == 0)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage);
+                else {
+                    FindConnectionsAtBoardForPin(args.at(0), args.at(1));
+                }
+            } break;
+            case UserCommand::CheckResistances: {
+                if (args.size() == 0)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance);
+                else {
+                    FindConnectionsAtBoardForPin(args.at(0), args.at(1));
+                }
+            }break;
             case UserCommand::EnableOutputForPin: {
                 EnableOutputForPin(args.at(0));
             } break;
@@ -509,6 +630,12 @@ class Apparatus {
             } break;
             case UserCommand::GetInternalCounter: {
                 GetBoardCounter(args.at(0));
+            } break;
+            case UserCommand::GetTaskStackWatermark: {
+                auto watermark = Task::GetStackWatermarkOfThisTask();
+                auto response  = "STACK dummyarg -> " + std::to_string(watermark) + " END\n";
+                bluetooth->Write(response);
+                console.Log(response);
             }
             default: break;
             }

@@ -31,7 +31,7 @@ enum Tasks {
 enum class EnableLogForComponent : bool {
     IIC      = false,
     IOBoards = false,
-    Main     = true,
+    Main     = false,
     BluetoothSPP = false,
     BluettothMain = false
 

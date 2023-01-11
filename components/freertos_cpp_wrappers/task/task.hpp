@@ -89,6 +89,14 @@ class Task {
     static void SuspendAll() noexcept { vTaskSuspendAll(); }
     static void ResumeAll() noexcept { xTaskResumeAll(); }
 
+    static UBaseType_t GetStackWatermarkOfThisTask() noexcept {
+        return uxTaskGetStackHighWaterMark(nullptr);
+    }
+
+    UBaseType_t GetStackWatermark() noexcept {
+        return uxTaskGetStackHighWaterMark(taskHandle);
+    }
+
   protected:
     bool CreateFreeRTOSTask() noexcept
     {

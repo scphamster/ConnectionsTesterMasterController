@@ -37,6 +37,23 @@ class Board {
         _07       = ProjCfg::low_voltage_reference_select_pin,
     };
 
+    struct VoltageCheckCmd {
+        enum SpecialMeasurements : Byte {
+            MeasureAll = 33,
+            MeasureVCC,
+            MeasureGND
+        };
+        using PinNum                                               = uint8_t;
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 13;
+        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
+        PinNum pin;
+    };
+    struct VoltageSetCmd {
+        enum class Special {
+            DisableAll = 254
+        };
+    };
+
     Board(AddressT board_hw_address, std::shared_ptr<QueueT> data_queue)
       : dataLink{ board_hw_address }
       , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
@@ -50,7 +67,6 @@ class Board {
     {
         voltageTableCheckTask.Start();
     }
-
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     void SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
@@ -67,17 +83,19 @@ class Board {
             console.LogError("Voltage setting unsuccessful");
         }
     }
+
     void DisableOutput()
     {
         SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll));
     }
-
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
     {
         if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::GetInternalCounter))) {
             console.LogError("Get counter value command not succeeded");
             return std::nullopt;
         };
+
+        Task::DelayMs(5);
 
         return dataLink.ReadBoardAnswer<InternalCounterT>();
     }
@@ -93,6 +111,7 @@ class Board {
 
         return adc_val;
     }
+
     std::optional<AllPinsVoltages> GetAllPinsVoltages() noexcept
     {
         auto voltages =
@@ -135,24 +154,7 @@ class Board {
 
         return response;
     }
-
   protected:
-    struct VoltageCheckCmd {
-        enum SpecialMeasurements : Byte {
-            MeasureAll = 33,
-            MeasureVCC,
-            MeasureGND
-        };
-        using PinNum                                               = uint8_t;
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 13;
-        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
-        PinNum pin;
-    };
-    struct VoltageSetCmd {
-        enum class Special {
-            DisableAll = 254
-        };
-    };
     bool SendCmd(Byte cmd, CommandArgsT args) noexcept { return dataLink.SendCommand(cmd, args); }
     bool SendCmd(Byte cmd) noexcept { return SendCmd(cmd, CommandArgsT{}); }
     template<typename ReturnType>

@@ -2,10 +2,12 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <sstream>
+#include <iomanip>
 
 class StringParser {
   public:
-    std::pair<std::string, std::string::size_type> static GetNextWord(std::string                  str,
+    static std::pair<std::string, std::string::size_type> GetNextWord(std::string                  str,
                                                                       std::string::difference_type from_pos = 0)
     {
         auto char_it = str.begin() + from_pos;
@@ -35,7 +37,7 @@ class StringParser {
 
         return { word, char_it - str.begin() };
     }
-    std::vector<std::string> static GetWords(std::string str)
+    static std::vector<std::string> GetWords(std::string str)
     {
         std::vector<std::string> string_list;
 
@@ -55,5 +57,12 @@ class StringParser {
             if (next_pos >= str.size() or next_pos == -1)
                 return string_list;
         }
+    }
+
+    static std::string ConvertFpValueWithPrecision(float value, int precision)
+    {
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(precision) << value;
+        return stream.str();
     }
 };

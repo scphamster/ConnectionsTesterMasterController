@@ -1,6 +1,6 @@
 /.devcontainer/
 /.vscode/
 /cmake-build-debug/
-/build/
+/build
 /.idea
-/esp-idf-v4.4.3/**
+esp-idf-v4.4.3/**
