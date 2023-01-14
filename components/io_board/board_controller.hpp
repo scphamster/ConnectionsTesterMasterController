@@ -6,6 +6,7 @@
 #include "queue.hpp"
 #include "task.hpp"
 #include "semaphore.hpp"
+#include "utilities.hpp"
 
 // todo: implement internal timer to not bother user about delays
 class Board {
@@ -16,10 +17,12 @@ class Board {
     using PinNumT          = size_t;
     using AddressT         = Byte;
     using ADCValueT        = uint16_t;
+    using AdcValueLoRes    = Byte;
     using InternalCounterT = uint32_t;
-    // todo: delete from here after tests
-    using CommandArgsT    = Byte;
-    using AllPinsVoltages = std::array<ADCValueT, pinCount>;
+    using CommandArgsT      = Byte;
+    using AllPinsVoltages   = std::array<ADCValueT, pinCount>;
+    using AllPinsVoltages8B = std::array<AdcValueLoRes, pinCount>;
+
     struct PinsVoltages {
         AddressT        boardAddress;
         AllPinsVoltages voltagesArray;
@@ -29,7 +32,12 @@ class Board {
         SetPinVoltage      = 0xC1,
         GetInternalCounter = 0xC2,
         GetPinVoltage      = 0xC3,
-        SetOutputVoltage   = 0xc4
+        SetOutputVoltage   = 0xc4,
+        StartTest          = 0xc6,
+    };
+    enum BoardAnswer {
+        OK   = 0xa5,
+        FAIL = 0x50
     };
     enum class OutputVoltage : uint8_t {
         Undefined = 0,
@@ -44,7 +52,7 @@ class Board {
             MeasureGND
         };
         using PinNum                                               = uint8_t;
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 13;
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 14;
         TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
         PinNum pin;
     };
@@ -53,7 +61,10 @@ class Board {
             DisableAll = 254
         };
     };
-
+    struct SetOwnAddressCmd {
+        Byte static constexpr command                = 0xc5;
+        size_t static constexpr waitForResultDelayMs = 500;
+    };
     Board(AddressT board_hw_address, std::shared_ptr<QueueT> data_queue)
       : dataLink{ board_hw_address }
       , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
@@ -83,11 +94,20 @@ class Board {
             console.LogError("Voltage setting unsuccessful");
         }
     }
-
     void DisableOutput()
     {
         SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll));
     }
+    bool StartTest()
+    {
+        auto result = SendCmd(ToUnderlying(Command::StartTest));
+        if (not result) {
+            console.LogError("Test Start Unsuccessful!");
+        }
+
+        return result;
+    }
+
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
     {
         if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::GetInternalCounter))) {
@@ -111,7 +131,6 @@ class Board {
 
         return adc_val;
     }
-
     std::optional<AllPinsVoltages> GetAllPinsVoltages() noexcept
     {
         auto voltages =
@@ -125,9 +144,9 @@ class Board {
         }
 
         return voltages;
-    }
 
-    std::optional<std::vector<Byte>> UnitTestCommunication(std::vector<Byte> const &data) noexcept
+    }
+    std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
     {
         auto response = dataLink.UnitTestCommunication(data);
 
@@ -154,6 +173,40 @@ class Board {
 
         return response;
     }
+    bool SetNewBoardAddress(AddressT new_address)
+    {
+        if (new_address < ProjCfg::BoardsConfigs::MinAddress or new_address > ProjCfg::BoardsConfigs::MaxAddress) {
+            throw std::invalid_argument("address value is out of range!");
+        }
+
+        auto send_succeeded = SendCmd(SetOwnAddressCmd::command, new_address);
+
+        //        if (not send_succeeded) return false;
+
+        SetNewAddress(new_address);
+
+        Task::DelayMs(SetOwnAddressCmd::waitForResultDelayMs);
+
+        auto result = dataLink.ReadBoardAnswer<Byte>();
+
+        if (result) {
+            if (*result == BoardAnswer::OK) {
+                console.Log("Ok arrived");
+                return true;
+            }
+            else if (*result == BoardAnswer::FAIL) {
+                console.LogError("Fail arrived");
+                return false;
+            }
+            else {
+                console.LogError("Unknown answer arrived: " + std::to_string(*result));
+                return false;
+            }
+        }
+        else
+            return false;
+    }
+
   protected:
     bool SendCmd(Byte cmd, CommandArgsT args) noexcept { return dataLink.SendCommand(cmd, args); }
     bool SendCmd(Byte cmd) noexcept { return SendCmd(cmd, CommandArgsT{}); }
@@ -187,6 +240,17 @@ class Board {
                 console.LogError("board with adress: " + std::to_string(dataLink.GetAddres()) +
                                  " all pins voltages bad result!");
                 continue;
+            }
+
+            int counter = 0;
+            for (const auto &voltage : *result) {
+                if (voltage > 1023) {
+                    console.LogError("voltage value higher than 1023: " + std::to_string(voltage));
+                    if (counter != 0)
+                        console.LogError("previous voltage was: " + std::to_string((*result).at(counter - 1)));
+                }
+
+                counter++;
             }
 
             allPinsVoltagesTableQueue->Send(PinsVoltages{ dataLink.GetAddres(), *result });

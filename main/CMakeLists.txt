@@ -58,7 +58,7 @@ set(CXX_SOURCES
     ${COMPONENTS_DIR}/io_board/main_apparatus.cpp
 
     ${COMPONENTS_DIR}/tools/string_parser.hpp
-
+    ${COMPONENTS_DIR}/tools/utilities.hpp
     )
 
 set(C_SOURCES

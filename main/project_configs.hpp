@@ -18,7 +18,9 @@ enum BoardsConfigs {
     IICSpeedHz = 100000,
     SDA_Pin    = 33,
     SCL_Pin    = 32,
-    NumberOfPins = 32
+    NumberOfPins = 32,
+    MinAddress = 32,
+    MaxAddress = 80
 };
 
 enum Tasks {
@@ -31,10 +33,12 @@ enum Tasks {
 enum class EnableLogForComponent : bool {
     IIC      = false,
     IOBoards = false,
-    Main     = false,
+    Main     = true,
     BluetoothSPP = false,
     BluettothMain = false
-
+};
+enum Log {
+    LogAllErrors=true
 };
 
 enum TimeoutMs {

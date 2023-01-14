@@ -12,6 +12,8 @@
 #include "semaphore.hpp"
 #include "bluetooth.hpp"
 #include "string_parser.hpp"
+#include "gpio.hpp"
+
 class Apparatus {
   public:
     using Byte               = uint8_t;
@@ -50,6 +52,8 @@ class Apparatus {
         GetAllBoardsIds,
         GetInternalCounter,
         GetTaskStackWatermark,
+        SetNewAddressForBoard,
+        Test,
         Unknown
     };
     enum class ConnectionAnalysis {
@@ -84,7 +88,7 @@ class Apparatus {
             console.LogError("No boards found, check was performed between addresses: " + std::to_string(start_address) +
                              " and " + std::to_string(last_address));
 
-        Task::DelayMs(200);
+        Task::DelayMs(500);
 
         for (auto const &board : ioBoards) {
             auto counter_value = board->GetBoardCounterValue();
@@ -135,17 +139,20 @@ class Apparatus {
     void SetOutputVoltageValue(OutputVoltageLevel level) noexcept
     {
         for (auto const &board : ioBoards) {
+            console.Log("Setting voltage level");
             board->SetOutputVoltageValue(level);
         }
     }
 
-    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board, ConnectionAnalysis analysis_type, bool sequential)
+    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board,
+                                              ConnectionAnalysis     analysis_type,
+                                              bool                   sequential)
     {
         constexpr auto pin_count_at_board = Board::pinCount;
 
         for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
             board->SetVoltageAtPin(pin);
-            Task::DelayMs(1);
+            Task::DelayMs(3);
 
             auto voltage_tables_from_all_boards = MeasureAll(sequential);
             board->DisableOutput();
@@ -333,7 +340,8 @@ class Apparatus {
         auto voltage            = CalculateVoltageFromAdcValue(adc_value);
         auto circuit_current    = voltage / shunt_resistance;
         auto overall_resistance = output_voltage / circuit_current;
-        auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance + calibration_value;
+        auto test_resistance =
+          overall_resistance - output_resistance - input_resistance - shunt_resistance + calibration_value;
         return test_resistance;
     }
     VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value)
@@ -406,7 +414,7 @@ class Apparatus {
                         user_command = UserCommand::CheckVoltages;
                     else {
                         console.LogError("Unknown command: " + second_word);
-                        return {UserCommand::Unknown, std::vector<int>()};
+                        return { UserCommand::Unknown, std::vector<int>() };
                     }
 
                     if (words.size() == 2) {
@@ -415,10 +423,10 @@ class Apparatus {
 
                     if (words.size() == 3) {
                         if (words.at(2) == "sequential") {
-                            return {user_command, std::vector<int>{1}};
+                            return { user_command, std::vector<int>{ 1 } };
                         }
                         else {
-                            return {UserCommand::Unknown, std::vector<int>()};
+                            return { UserCommand::Unknown, std::vector<int>() };
                         }
                     }
 
@@ -491,6 +499,36 @@ class Apparatus {
             else if (words.at(0) == "stack") {
                 return { UserCommand::GetTaskStackWatermark, std::vector<int>() };
             }
+            else if (words.at(0) == "newaddress") {
+                int new_addr = -1;
+                try {
+                    new_addr = std::stoi(words.at(1));
+                } catch (...) {
+                    bluetooth->Write("bad argument for command\n");
+                    console.LogError("wrong argument for commmand");
+                    return { UserCommand::Unknown, std::vector<int>() };
+                }
+
+                auto user_command = UserCommand::SetNewAddressForBoard;
+
+                if (words.size() == 2)
+                    return { user_command, std::vector{ new_addr } };
+
+                int current_address = new_addr;
+
+                try {
+                    new_addr = std::stoi(words.at(2));
+                } catch (...) {
+                    bluetooth->Write("bad argument for command\n");
+                    console.LogError("bad argument for command");
+                    return { UserCommand::Unknown, std::vector<int>() };
+                }
+
+                return { user_command, std::vector{ current_address, new_addr } };
+            }
+            else if (words.at(0) == "test") {
+                return { UserCommand::Test, std::vector<int>() };
+            }
 
             return { UserCommand::Unknown, std::vector<int>() };
         }
@@ -499,19 +537,46 @@ class Apparatus {
     // tests
     [[noreturn]] void UnitTestAllRead() noexcept
     {
-        ioBoards.at(0)->SetVoltageAtPin(1);
         Task::DelayMs(500);
+        int pin         = 0;
+        int bad_pin     = -1;
+        int bad_voltage = -1;
         while (true) {
+            ioBoards.at(0)->SetVoltageAtPin(pin);
+            Task::DelayMs(3);
             auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
             if (voltages) {
                 int pin_counter = 0;
                 for (auto const voltage : *voltages) {
-                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(voltage));
+                    if (voltage > 1023) {
+                        bad_pin     = pin_counter;
+                        bad_voltage = voltage;
+                    }
                     pin_counter++;
+                }
+
+                if (bad_pin != -1) {
+                    console.LogError("Checked pin: " + std::to_string(pin) + " Bad pin voltage at pin:" + std::to_string(bad_pin) +
+                                     ", voltage=" + std::to_string(bad_voltage));
+                    bad_pin     = -1;
+                    bad_voltage = -1;
+
+                    while(true) {
+                        testPin.SetLevel(Pin::Level::High);
+                        Task::DelayMs(100);
+                    }
+                }
+                else {
+                    console.Log("OK");
+                    bluetooth->Write("OK\n");
                 }
             }
 
-            Task::DelayMs(300);
+            pin++;
+
+            Task::DelayMs(5);
+            if (pin == 31)
+                pin = 0;
         }
     }
     [[noreturn]] void UnitTestGetCounter() noexcept
@@ -570,22 +635,38 @@ class Apparatus {
             }
         }
     }
-    [[noreturn]] void UnitTestCommunication(Byte board_addr) noexcept
+    [[noreturn]] void UnitTestCommunication() noexcept
     {
-        ioBoards.emplace_back(std::make_shared<Board>(board_addr, pinsVoltagesResultsQ));
         auto constexpr test_data_len = 10;
-        while (true) {
-            auto data_to_slave = std::vector<Byte>(test_data_len);
 
-            for (auto &value : data_to_slave) {
-                value = rand() % 10 + 1;
+        if (!ioBoards.at(0)->StartTest())
+            std::terminate();
+
+        auto board_addr = ioBoards.at(0)->GetAddress();
+
+        Task::DelayMs(200);
+
+        while (true) {
+            auto data = std::array<uint16_t, 32>();
+            auto res  = i2c->Write(board_addr, std::vector<Byte>{ 150 }, 200);
+
+            if (res != IIC::OperationResult::OK) {
+                console.LogError("Bad write");
+                continue;
             }
 
-            ioBoards.at(0)->UnitTestCommunication(data_to_slave);
-            //            ioBoards.at(0)->UnitTestCommunication(std::vector<Byte>{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
-            //                                                                     11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-            //                                                                     21, 22, 23, 24, 25, 26, 27, 28, 29, 30
-            //                                                                     });
+            Task::DelayMs(100);
+            auto result = i2c->Read<decltype(data)>(ioBoards.at(0)->GetAddress(), 200);
+
+            if (result) {
+                int counter = 0;
+                for (auto const &value : *result) {
+                    if (value > 1023) {
+                        console.Log(std::to_string(value));
+                        console.LogError("Counter= " + std::to_string(counter) + " value:" + std::to_string(value));
+                    }
+                }
+            }
 
             Task::DelayMs(100);
         }
@@ -636,7 +717,7 @@ class Apparatus {
                 else {
                     FindConnectionsAtBoardForPin(args.at(0), args.at(1));
                 }
-            }break;
+            } break;
             case UserCommand::EnableOutputForPin: {
                 EnableOutputForPin(args.at(0));
             } break;
@@ -651,7 +732,44 @@ class Apparatus {
                 auto response  = "STACK dummyarg -> " + std::to_string(watermark) + " END\n";
                 bluetooth->Write(response);
                 console.Log(response);
-            }
+            } break;
+            case UserCommand::SetNewAddressForBoard:
+                if (args.size() == 1) {
+                    if (ioBoards.size() != 1) {
+                        bluetooth->Write("No, or more than one boards are connected, specify current address with first "
+                                         "argument: newaddress [current address] [new address]\n");
+                        console.LogError("No, or more than one boards are connected, specify current address with first "
+                                         "argument: newaddress [current address] [new address]\n");
+                    }
+
+                    auto result = ioBoards.at(0)->SetNewBoardAddress(args.at(0));
+                    if (result) {
+                        bluetooth->Write("CMD OK END\n");
+                    }
+                    else {
+                        bluetooth->Write("CMD FAIL END\n");
+                    }
+                }
+                else {
+                    auto board = FindBoardWithAddress(args.at(0));
+                    if (board) {
+                        auto result = (*board)->SetNewBoardAddress(args.at(1));
+                        if (result) {
+                            bluetooth->Write("CMD OK END\n");
+                        }
+                        else {
+                            bluetooth->Write("CMD FAIL END\n");
+                        }
+                    }
+                    else {
+                        bluetooth->Write("Board not found");
+                        console.LogError("Board not found");
+                    }
+                }
+                break;
+
+            case UserCommand::Test: UnitTestAllRead(); break;
+
             default: break;
             }
         }
@@ -674,7 +792,7 @@ class Apparatus {
                     ProjCfg::BoardsConfigs::SCL_Pin,
                     ProjCfg::BoardsConfigs::IICSpeedHz);
         i2c = IIC::Get();
-
+        testPin.SetLevel(Pin::Level::Low);
         Init();
 
         measurementsTask.Start();
@@ -688,6 +806,8 @@ class Apparatus {
     std::vector<std::shared_ptr<Board>>     ioBoards;
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
+
+    Pin testPin{26, Pin::Direction::Output};
 
     std::shared_ptr<Queue<char>> fromUserInputQ;
     std::shared_ptr<Bluetooth>   bluetooth;

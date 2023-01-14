@@ -51,7 +51,7 @@ class SmartLogger {
 
     void LogError(std::string text) noexcept
     {
-        if (isEnabled)
+        if (isEnabled or ProjCfg::Log::LogAllErrors)
             console->LogError(tag + ": " + text);
     }
     void Log(std::string text) noexcept
