@@ -332,6 +332,7 @@ class Board {
                 pin_counter++;
             }
 
+            operation_result = Result::Good;
             allPinsVoltagesTableQueue->Send(PinsVoltages{ operation_result, dataLink.GetAddress(), *voltages });
         }
     }

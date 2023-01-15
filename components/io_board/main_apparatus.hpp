@@ -67,6 +67,10 @@ class Apparatus {
             DisableAll = 254
         };
     };
+    struct PinOnBoard {
+        int boardAffinity = -1;
+        int idxOnBoard    = -1;
+    };
 
     void Init() noexcept { FindAllConnectedBoards(); }
 
@@ -144,74 +148,21 @@ class Apparatus {
     {
         constexpr auto pin_count_at_board = Board::pinCount;
 
+        std::vector<PinNumT> failedPins;
+
         for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
-            board->SetVoltageAtPin(pin);
-            Task::DelayMs(5);
-
-            auto voltage_tables_from_all_boards = MeasureAll(sequential);
-            board->DisableOutput();
-
-            if (voltage_tables_from_all_boards == std::nullopt) {
-                console.LogError("Unsuccessful!");
-                return;
+            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+                failedPins.emplace_back(pin);
             }
-
-            std::string response_header;
-
-            switch (analysis_type) {
-            case ConnectionAnalysis::SimpleBoolean: {
-                response_header = "CONNECT";
-            } break;
-            case ConnectionAnalysis::Voltage: {
-                response_header = "VOLTAGES";
-            } break;
-            case ConnectionAnalysis::Resistance: {
-                response_header = "RESISTANCES";
-            } break;
-            default: {
-                console.LogError("Bad analysis type for find connections command: " +
-                                 std::to_string(static_cast<int>(analysis_type)));
-                return;
-            }
-            }
-
-            std::string answer_to_master =
-              response_header + ' ' + std::to_string(board->GetAddress()) + ':' + std::to_string(pin) + " -> ";
-
-            for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
-                std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
-
-                auto pin_counter = 0;
-                for (auto voltage : voltage_table_from_board.voltagesArray) {
-                    if (voltage > 0) {
-                        if (analysis_type == ConnectionAnalysis::SimpleBoolean) {
-                            answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
-                        }
-                        else if (analysis_type == ConnectionAnalysis::Resistance) {
-                            answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + '(' +
-                                                    StringParser::ConvertFpValueWithPrecision(
-                                                      CalculateConnectionResistanceFromAdcValue(voltage),
-                                                      1) +
-                                                    ") ");
-                        }
-                        else if (analysis_type == ConnectionAnalysis::Voltage) {
-                            answer_to_master.append(
-                              board_affinity + ':' + std::to_string(pin_counter) + '(' +
-                              StringParser::ConvertFpValueWithPrecision(CalculateVoltageFromAdcValue(voltage), 2) + ") ");
-                        }
-                    }
-
-                    pin_counter++;
-                }
-            }
-
-            answer_to_master.append("END\n");
-
-            console.Log(answer_to_master);
-            bluetooth->Write(answer_to_master);
-
-            Task::DelayMs(3);
         }
+
+        for (auto const pin : failedPins) {
+            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+                console.LogError("Failed second time!");
+            }
+        }
+
+        return;
     }
     void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type, bool sequential) noexcept
     {
@@ -266,7 +217,86 @@ class Apparatus {
         bt_string.append("END\n");
         console.Log(bt_string);
     }
+    // todo change name
+    void FindAndAnalyzeConnectionsNew(std::vector<PinOnBoard> pins) noexcept
+    {
+        for (auto const &pin : pins) {
+            FindConnectionsAtBoardForPin(pin.boardAffinity, pin.idxOnBoard);
+        }
+    }
+    bool FindConnectionsForPinAtBoard(PinNumT                pin,
+                                      std::shared_ptr<Board> board,
+                                      ConnectionAnalysis     analysis_type,
+                                      bool                   sequential)
+    {
+        board->SetVoltageAtPin(pin);
+        Task::DelayMs(5);
 
+        auto voltage_tables_from_all_boards = MeasureAll(sequential);
+        board->DisableOutput();
+
+        if (voltage_tables_from_all_boards == std::nullopt) {
+            console.LogError("Unsuccessful!");
+            return false;
+        }
+
+        std::string response_header;
+        switch (analysis_type) {
+        case ConnectionAnalysis::SimpleBoolean: {
+            response_header = "CONNECT";
+        } break;
+        case ConnectionAnalysis::Voltage: {
+            response_header = "VOLTAGES";
+        } break;
+        case ConnectionAnalysis::Resistance: {
+            response_header = "RESISTANCES";
+        } break;
+        default: {
+            console.LogError("Bad analysis type for find connections command: " +
+                             std::to_string(static_cast<int>(analysis_type)));
+            std::terminate();
+        }
+        }
+
+        std::string answer_to_master =
+          response_header + ' ' + std::to_string(board->GetAddress()) + ':' + std::to_string(pin) + " -> ";
+
+        for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
+            std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
+
+            auto pin_counter = 0;
+            for (auto voltage : voltage_table_from_board.voltagesArray) {
+                if (voltage > 0) {
+                    if (analysis_type == ConnectionAnalysis::SimpleBoolean) {
+                        answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
+                    }
+                    else if (analysis_type == ConnectionAnalysis::Resistance) {
+                        answer_to_master.append(
+                          board_affinity + ':' + std::to_string(pin_counter) + '(' +
+                          StringParser::ConvertFpValueWithPrecision(CalculateConnectionResistanceFromAdcValue(voltage),
+                                                                    1) +
+                          ") ");
+                    }
+                    else if (analysis_type == ConnectionAnalysis::Voltage) {
+                        answer_to_master.append(
+                          board_affinity + ':' + std::to_string(pin_counter) + '(' +
+                          StringParser::ConvertFpValueWithPrecision(CalculateVoltageFromAdcValue(voltage), 2) + ") ");
+                    }
+                }
+
+                pin_counter++;
+            }
+        }
+
+        answer_to_master.append("END\n");
+
+        console.Log(answer_to_master);
+        bluetooth->Write(answer_to_master);
+
+        Task::DelayMs(3);
+
+        return true;
+    }
     void GetBoardCounter(BoardAddrT board_addr)
     {
         auto board = FindBoardWithAddress(board_addr);
@@ -289,6 +319,7 @@ class Apparatus {
     }
     std::optional<std::vector<PinsVoltages>> MeasureAll(bool sequential) noexcept
     {
+        pinsVoltagesResultsQ->Flush();
         StartVoltageMeasurementOnAllBoards(sequential);
 
         std::vector<PinsVoltages> all_boards_voltages;
@@ -298,6 +329,11 @@ class Apparatus {
 
             if (voltage_table == std::nullopt) {
                 console.LogError("voltage table retrieval timeout!");
+                return std::nullopt;
+            }
+
+            if (voltage_table->readResult != CommResult::Good) {
+                console.LogError("Bad measure all result");
                 return std::nullopt;
             }
 
@@ -729,7 +765,6 @@ class Apparatus {
                     }
 
                     auto result = ioBoards.at(0)->SetNewBoardAddress(args.at(0));
-
 
                     if (result == CommResult::Good) {
                         bluetooth->Write("CMD OK END\n");
