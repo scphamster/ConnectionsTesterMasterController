@@ -1,19 +1,9 @@
-#include <stdio.h>
-#include <vector>
-
 #include "nvs_flash.h"
 
-#include "FreeRTOSConfig.h"
-
-#include "esp_logger.hpp"
 #include "task.hpp"
 #include "bluetooth.hpp"
 
-#include "queue.hpp"
-
 #include "main_apparatus.hpp"
-#include "task.hpp"
-#include "semaphore.hpp"
 
 extern "C" void
 app_main()

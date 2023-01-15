@@ -76,8 +76,8 @@ class Apparatus {
 
     void FindAllConnectedBoards() noexcept
     {
-        auto constexpr start_address = 0x00;
-        auto constexpr last_address  = 0xff;
+        auto constexpr start_address = 0x01;
+        auto constexpr last_address  = 0x7F;
 
         Task::DelayMs(500);
 
@@ -155,7 +155,7 @@ class Apparatus {
         if (result != CommResult::Good)
             return false;
 
-        Task::DelayMs(5);
+        Task::DelayMs(ProjCfg::BoardsConfigs::DelayAfterPinVoltageSetMs);
 
         auto voltage_tables_from_all_boards = MeasureAll(sequential);
         board->DisableOutput();
@@ -191,6 +191,13 @@ class Apparatus {
 
             auto pin_counter = 0;
             for (auto voltage : voltage_table_from_board.voltagesArray) {
+                if (pin == pin_counter and board->GetAddress() == voltage_table_from_board.boardAddress) {
+                    if (voltage == 0) {
+                        console.LogError("Pin is not connected to itself!");
+                        return false;
+                    }
+                }
+
                 if (voltage > 0) {
                     if (analysis_type == ConnectionAnalysis::SimpleBoolean) {
                         answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
@@ -205,7 +212,7 @@ class Apparatus {
                     else if (analysis_type == ConnectionAnalysis::Voltage) {
                         answer_to_master.append(
                           board_affinity + ':' + std::to_string(pin_counter) + '(' +
-                          StringParser::ConvertFpValueWithPrecision(CalculateVoltageFromAdcValue(voltage), 2) + ") ");
+                          StringParser::ConvertFpValueWithPrecision((voltage), 2) + ") ");
                     }
                 }
 
@@ -218,7 +225,7 @@ class Apparatus {
         console.Log(answer_to_master);
         bluetooth->Write(answer_to_master);
 
-        Task::DelayMs(3);
+        //        Task::DelayMs(3);
 
         return true;
     }
@@ -227,20 +234,32 @@ class Apparatus {
                                               bool                   sequential)
     {
         constexpr auto pin_count_at_board = Board::pinCount;
+        int            retry_count        = ProjCfg::BoardsConfigs::PinConnectionsCheckRetryCount;
 
         std::vector<PinNumT> failedPins;
 
         for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
-            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+            if (not FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
                 failedPins.emplace_back(pin);
             }
         }
 
-        for (auto const pin : failedPins) {
-            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
-                console.LogError("Failed second time!");
+        if (failedPins.empty())
+            return;
+
+        do {
+            std::vector<PinNumT> failedPinsSecondTime;
+
+            for (auto const pin : failedPins) {
+                if (not FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+                    failedPinsSecondTime.emplace_back(pin);
+                }
             }
-        }
+
+            failedPins = std::move(failedPinsSecondTime);
+
+            retry_count--;
+        } while (retry_count > 0);
 
         return;
     }
@@ -256,7 +275,10 @@ class Apparatus {
             FindAndAnalyzeAllConnectionsForBoard(board, analysis_type, sequential);
         }
     }
-    void FindConnectionsAtBoardForPin(BoardAddrT board_address, PinNumT pin)
+    void FindConnectionsAtBoardForPin(BoardAddrT         board_address,
+                                      PinNumT            pin,
+                                      ConnectionAnalysis analysis_type,
+                                      bool               sequential)
     {
         if (pin > Board::pinCount) {
             console.LogError("requested pin number is higher than pin count at one board, requested pin: " +
@@ -269,41 +291,10 @@ class Apparatus {
             console.LogError("Board with address: " + std::to_string(board_address) + " not found");
             return;
         }
-        (*board)->SetVoltageAtPin(pin);
 
-        auto voltage_tables_from_all_boards = MeasureAll(true);
-        if (voltage_tables_from_all_boards == std::nullopt) {
-            console.LogError("Unsuccessful");
-            return;
-        }
-
-        PrintAllVoltagesFromTable(*voltage_tables_from_all_boards);
-
-        std::string bt_string = "CONNECT " + std::to_string((*board)->GetAddress()) + ':' + std::to_string(pin) + " -> ";
-
-        for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
-            std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
-
-            auto pin_counter = 0;
-            for (auto voltage : voltage_table_from_board.voltagesArray) {
-                if (voltage > 0) {
-                    bt_string.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
-                }
-
-                pin_counter++;
-            }
-        }
-
-        bt_string.append("END\n");
-        console.Log(bt_string);
+        FindConnectionsForPinAtBoard(pin, *board, analysis_type, sequential);
     }
     // todo change name
-    void FindAndAnalyzeConnectionsNew(std::vector<PinOnBoard> pins) noexcept
-    {
-        for (auto const &pin : pins) {
-            FindConnectionsAtBoardForPin(pin.boardAffinity, pin.idxOnBoard);
-        }
-    }
     void GetBoardCounter(BoardAddrT board_addr)
     {
         auto board = FindBoardWithAddress(board_addr);
@@ -726,7 +717,7 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1));
+                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::SimpleBoolean, true);
                 }
             } break;
             case UserCommand::CheckVoltages: {
@@ -735,7 +726,7 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1));
+                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::Voltage, true);
                 }
             } break;
             case UserCommand::CheckResistances: {
@@ -744,7 +735,7 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1));
+                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::Resistance, true);
                 }
             } break;
             case UserCommand::EnableOutputForPin: {

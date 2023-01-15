@@ -63,8 +63,9 @@ class Board {
             MeasureGND
         };
 
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 15;
-        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 15;
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs =
+          ProjCfg::BoardsConfigs::DelayBeforeReadAllPinsVoltagesResult;
+        TickType_t static constexpr timeToWaitForResponseOnePinMs = 15;
         PinNum pin;
     };
     struct VoltageSetCmd {
@@ -250,6 +251,7 @@ class Board {
             if (result == DataLink::Result::Good)
                 return Result::Good;
 
+            Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeRetryCommandSendMs);
             retry_counter++;
         } while (retry_counter < retry_times);
 
@@ -267,7 +269,7 @@ class Board {
         int retry_counter = 0;
         do {
             auto [read_result, value] = dataLink.ReadBoardAnswer<ReturnType>();
-            result = read_result;
+            result                    = read_result;
 
             if (read_result == DataLink::Result::Good)
                 return { Result::Good, value };
@@ -325,7 +327,7 @@ class Board {
             int    pin_counter      = 0;
             for (auto const voltage : *voltages) {
                 if (voltage == UINT8_MAX) {
-                    console.LogError("voltage value at pin " + std::to_string(pin_counter) + "is clipped(maxed, =255)");
+                    console.LogError("voltage value at pin " + std::to_string(pin_counter) + " is clipped(maxed, =255)");
                     operation_result = Result::UnhealthyAnswerValue;
                 }
 

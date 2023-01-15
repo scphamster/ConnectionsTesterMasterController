@@ -15,7 +15,7 @@ enum BluetoothCfg {
 };
 
 enum BoardsConfigs {
-    IICSpeedHz = 100000,
+    IICSpeedHz = 200000,
     SDA_Pin    = 33,
     SCL_Pin    = 32,
     NumberOfPins = 32,
@@ -23,7 +23,11 @@ enum BoardsConfigs {
     MaxAddress = 80,
     DelayBeforeCheckOfInternalCounterAfterInitializationMs = 500,
     CommandSendRetryNumber = 3,
+    PinConnectionsCheckRetryCount = 5,
     DelayBeforeAcknowledgeCheckMs = 7,
+    DelayAfterPinVoltageSetMs = 1,
+    DelayBeforeReadAllPinsVoltagesResult = 10,
+    DelayBeforeRetryCommandSendMs = 50,
 };
 
 enum Tasks {
@@ -36,7 +40,7 @@ enum Tasks {
 enum class EnableLogForComponent : bool {
     IIC      = false,
     IOBoards = false,
-    Main     = true,
+    Main     = false,
     BluetoothSPP = false,
     BluettothMain = false
 };
