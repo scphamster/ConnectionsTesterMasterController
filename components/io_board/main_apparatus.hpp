@@ -76,11 +76,14 @@ class Apparatus {
 
     void FindAllConnectedBoards() noexcept
     {
-        auto constexpr start_address = 0x20;
-        auto constexpr last_address  = 0x50;
+        auto constexpr start_address = 0x00;
+        auto constexpr last_address  = 0xff;
+
+        Task::DelayMs(500);
 
         for (auto addr = start_address; addr <= last_address; addr++) {
             auto board_found = i2c->CheckIfSlaveWithAddressIsOnLine(addr);
+            Task::DelayMs(5);
 
             if (board_found) {
                 console.Log("board with address:" + std::to_string(addr) + " was found");
@@ -138,98 +141,20 @@ class Apparatus {
     {
         for (auto const &board : ioBoards) {
             console.Log("Setting voltage level");
-            board->SetOutputVoltageValue(level);
+            board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            Task::DelayMs(5);
         }
     }
 
-    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board,
-                                              ConnectionAnalysis     analysis_type,
-                                              bool                   sequential)
-    {
-        constexpr auto pin_count_at_board = Board::pinCount;
-
-        std::vector<PinNumT> failedPins;
-
-        for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
-            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
-                failedPins.emplace_back(pin);
-            }
-        }
-
-        for (auto const pin : failedPins) {
-            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
-                console.LogError("Failed second time!");
-            }
-        }
-
-        return;
-    }
-    void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type, bool sequential) noexcept
-    {
-        console.Log("Executing command: FindAndAnalyzeAllConnections");
-
-        for (auto board : ioBoards) {
-            board->DisableOutput();
-        }
-
-        for (auto board : ioBoards) {
-            FindAndAnalyzeAllConnectionsForBoard(board, analysis_type, sequential);
-        }
-    }
-    void FindConnectionsAtBoardForPin(BoardAddrT board_address, PinNumT pin)
-    {
-        if (pin > Board::pinCount) {
-            console.LogError("requested pin number is higher than pin count at one board, requested pin: " +
-                             std::to_string(pin));
-            return;
-        }
-
-        auto board = FindBoardWithAddress(board_address);
-        if (not board) {
-            console.LogError("Board with address: " + std::to_string(board_address) + " not found");
-            return;
-        }
-        (*board)->SetVoltageAtPin(pin);
-
-        auto voltage_tables_from_all_boards = MeasureAll(true);
-        if (voltage_tables_from_all_boards == std::nullopt) {
-            console.LogError("Unsuccessful");
-            return;
-        }
-
-        PrintAllVoltagesFromTable(*voltage_tables_from_all_boards);
-
-        std::string bt_string = "CONNECT " + std::to_string((*board)->GetAddress()) + ':' + std::to_string(pin) + " -> ";
-
-        for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
-            std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
-
-            auto pin_counter = 0;
-            for (auto voltage : voltage_table_from_board.voltagesArray) {
-                if (voltage > 0) {
-                    bt_string.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
-                }
-
-                pin_counter++;
-            }
-        }
-
-        bt_string.append("END\n");
-        console.Log(bt_string);
-    }
-    // todo change name
-    void FindAndAnalyzeConnectionsNew(std::vector<PinOnBoard> pins) noexcept
-    {
-        for (auto const &pin : pins) {
-            FindConnectionsAtBoardForPin(pin.boardAffinity, pin.idxOnBoard);
-        }
-    }
     bool FindConnectionsForPinAtBoard(PinNumT                pin,
                                       std::shared_ptr<Board> board,
                                       ConnectionAnalysis     analysis_type,
                                       bool                   sequential)
     {
-        board->SetVoltageAtPin(pin);
+        auto result = board->SetVoltageAtPin(pin, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        if (result != CommResult::Good)
+            return false;
+
         Task::DelayMs(5);
 
         auto voltage_tables_from_all_boards = MeasureAll(sequential);
@@ -296,6 +221,88 @@ class Apparatus {
         Task::DelayMs(3);
 
         return true;
+    }
+    void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board,
+                                              ConnectionAnalysis     analysis_type,
+                                              bool                   sequential)
+    {
+        constexpr auto pin_count_at_board = Board::pinCount;
+
+        std::vector<PinNumT> failedPins;
+
+        for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
+            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+                failedPins.emplace_back(pin);
+            }
+        }
+
+        for (auto const pin : failedPins) {
+            if (!FindConnectionsForPinAtBoard(pin, board, analysis_type, sequential)) {
+                console.LogError("Failed second time!");
+            }
+        }
+
+        return;
+    }
+    void FindAndAnalyzeAllConnections(ConnectionAnalysis analysis_type, bool sequential) noexcept
+    {
+        console.Log("Executing command: FindAndAnalyzeAllConnections");
+
+        for (auto board : ioBoards) {
+            board->DisableOutput(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        }
+
+        for (auto board : ioBoards) {
+            FindAndAnalyzeAllConnectionsForBoard(board, analysis_type, sequential);
+        }
+    }
+    void FindConnectionsAtBoardForPin(BoardAddrT board_address, PinNumT pin)
+    {
+        if (pin > Board::pinCount) {
+            console.LogError("requested pin number is higher than pin count at one board, requested pin: " +
+                             std::to_string(pin));
+            return;
+        }
+
+        auto board = FindBoardWithAddress(board_address);
+        if (not board) {
+            console.LogError("Board with address: " + std::to_string(board_address) + " not found");
+            return;
+        }
+        (*board)->SetVoltageAtPin(pin);
+
+        auto voltage_tables_from_all_boards = MeasureAll(true);
+        if (voltage_tables_from_all_boards == std::nullopt) {
+            console.LogError("Unsuccessful");
+            return;
+        }
+
+        PrintAllVoltagesFromTable(*voltage_tables_from_all_boards);
+
+        std::string bt_string = "CONNECT " + std::to_string((*board)->GetAddress()) + ':' + std::to_string(pin) + " -> ";
+
+        for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
+            std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
+
+            auto pin_counter = 0;
+            for (auto voltage : voltage_table_from_board.voltagesArray) {
+                if (voltage > 0) {
+                    bt_string.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
+                }
+
+                pin_counter++;
+            }
+        }
+
+        bt_string.append("END\n");
+        console.Log(bt_string);
+    }
+    // todo change name
+    void FindAndAnalyzeConnectionsNew(std::vector<PinOnBoard> pins) noexcept
+    {
+        for (auto const &pin : pins) {
+            FindConnectionsAtBoardForPin(pin.boardAffinity, pin.idxOnBoard);
+        }
     }
     void GetBoardCounter(BoardAddrT board_addr)
     {
