@@ -21,7 +21,10 @@ class Board {
     using CommandArgsT             = Byte;
     using AllPinsVoltages          = std::array<ADCValueT, pinCount>;
     using AllPinsVoltages8B        = std::array<AdcValueLoRes, pinCount>;
-
+    using OutputVoltageRealT       = float;
+    using CircuitParamT            = float;
+    using VoltageT                 = CircuitParamT;
+    using ResistanceT              = CircuitParamT;
     auto static constexpr logicPinToPinOnBoardMapping =
       std::array<PinNumT, pinCount>{ 3,  28, 2,  29, 1, 30, 0, 31, 27, 4,  26, 5,  25, 6,  24, 7,
                                      11, 20, 10, 21, 9, 22, 8, 23, 19, 12, 18, 13, 17, 14, 16, 15 };
@@ -124,8 +127,14 @@ class Board {
         auto result =
           SendCmd(ToUnderlying(Command::SetOutputVoltage), CommandArgsT{ static_cast<Byte>(value) }, retry_times);
 
-        if (result != Result::Good) {
+        if (result != Result::Good)
             console.LogError("Voltage setting unsuccessful");
+        else {
+            switch (value) {
+            case OutputVoltage::_07: outputVoltage = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::_09: outputVoltage = ProjCfg::HIGH_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::Undefined: outputVoltage = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            }
         }
 
         return result;
@@ -143,6 +152,25 @@ class Board {
         }
 
         return false;
+    }
+
+    VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value)
+    {
+        VoltageT constexpr reference = 1.1;
+
+        return (static_cast<VoltageT>(adc_value) / 1024) * reference;
+    }
+    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value)
+    {
+        CircuitParamT constexpr output_resistance = 210;
+        CircuitParamT constexpr input_resistance  = 1100;
+        CircuitParamT constexpr shunt_resistance  = 330;
+
+        auto voltage            = CalculateVoltageFromAdcValue(adc_value);
+        auto circuit_current    = voltage / shunt_resistance;
+        auto overall_resistance = outputVoltage / circuit_current;
+        auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance;
+        return test_resistance;
     }
 
     std::pair<Result, std::optional<InternalCounterT>> GetBoardCounterValue(int retry_times = 0) noexcept
@@ -362,4 +390,5 @@ class Board {
     std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
     Task                       voltageTableCheckTask;
+    OutputVoltageRealT         outputVoltage = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
 };

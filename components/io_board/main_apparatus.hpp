@@ -205,15 +205,17 @@ class Apparatus {
                         answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + ' ');
                     }
                     else if (analysis_type == ConnectionAnalysis::Resistance) {
-                        answer_to_master.append(
-                          board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
-                          StringParser::ConvertFpValueWithPrecision(CalculateConnectionResistanceFromAdcValue(voltage),
-                                                                    1) +
-                          ") ");
+                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
+                                                StringParser::ConvertFpValueWithPrecision(
+                                                  board->CalculateConnectionResistanceFromAdcValue(voltage),
+                                                  1) +
+                                                ") ");
                     }
                     else if (analysis_type == ConnectionAnalysis::Voltage) {
-                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
-                                                StringParser::ConvertFpValueWithPrecision((voltage), 2) + ") ");
+                        answer_to_master.append(
+                          board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
+                          StringParser::ConvertFpValueWithPrecision(board->CalculateVoltageFromAdcValue(voltage), 2) +
+                          ") ");
                     }
                 }
 
@@ -355,28 +357,6 @@ class Apparatus {
         }
 
         return *board_it;
-    }
-    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value)
-    {
-        CircuitParamT constexpr output_resistance = 200;
-        CircuitParamT constexpr input_resistance  = 1200;
-        CircuitParamT constexpr shunt_resistance  = 330;
-        CircuitParamT constexpr output_voltage    = 0.7f;
-        CircuitParamT constexpr calibration_value = 120.f;
-
-        // todo: shrink to single line
-        auto voltage            = CalculateVoltageFromAdcValue(adc_value);
-        auto circuit_current    = voltage / shunt_resistance;
-        auto overall_resistance = output_voltage / circuit_current;
-        auto test_resistance =
-          overall_resistance - output_resistance - input_resistance - shunt_resistance + calibration_value;
-        return test_resistance;
-    }
-    VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value)
-    {
-        VoltageT constexpr reference = 1.1;
-
-        return (static_cast<VoltageT>(adc_value) / 1024) * reference;
     }
     void StartVoltageMeasurementOnAllBoards(bool sequential)
     {

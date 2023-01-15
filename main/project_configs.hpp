@@ -30,6 +30,10 @@ enum BoardsConfigs {
     DelayBeforeRetryCommandSendMs = 50,
 };
 
+constexpr float LOW_OUTPUT_VOLTAGE_VALUE = 0.693f;
+constexpr float HIGH_OUTPUT_VOLTAGE_VALUE = 0.92f;
+constexpr float DEFAULT_OUTPUT_VOLTAGE_VALUE = LOW_OUTPUT_VOLTAGE_VALUE;
+
 enum Tasks {
     VoltageCheckTaskPio           = 6,
     VoltageCheckTaskStackSize     = 4000,
