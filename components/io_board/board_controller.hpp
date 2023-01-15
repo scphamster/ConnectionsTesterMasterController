@@ -12,16 +12,19 @@
 class Board {
   public:
     auto static constexpr pinCount = ProjCfg::BoardsConfigs::NumberOfPins;
+    using Byte                     = uint8_t;
+    using PinNumT                  = size_t;
+    using AddressT                 = Byte;
+    using ADCValueT                = uint16_t;
+    using AdcValueLoRes            = Byte;
+    using InternalCounterT         = uint32_t;
+    using CommandArgsT             = Byte;
+    using AllPinsVoltages          = std::array<ADCValueT, pinCount>;
+    using AllPinsVoltages8B        = std::array<AdcValueLoRes, pinCount>;
 
-    using Byte              = uint8_t;
-    using PinNumT           = size_t;
-    using AddressT          = Byte;
-    using ADCValueT         = uint16_t;
-    using AdcValueLoRes     = Byte;
-    using InternalCounterT  = uint32_t;
-    using CommandArgsT      = Byte;
-    using AllPinsVoltages   = std::array<ADCValueT, pinCount>;
-    using AllPinsVoltages8B = std::array<AdcValueLoRes, pinCount>;
+    auto static constexpr logicPinToPinOnBoardMapping =
+      std::array<PinNumT, pinCount>{ 3,  28, 2,  29, 1, 30, 0, 31, 27, 4,  26, 5,  25, 6,  24, 7,
+                                     11, 20, 10, 21, 9, 22, 8, 23, 19, 12, 18, 13, 17, 14, 16, 15 };
 
     enum class Result {
         BadCommunication,
@@ -94,6 +97,15 @@ class Board {
     {
         voltageTableCheckTask.Start();
     }
+
+    static PinNumT GetHarnessPinNumFromLogicPinNum(PinNumT logic_pin_num) noexcept
+    {
+        if (logic_pin_num > pinCount)
+            std::terminate();
+
+        return logicPinToPinOnBoardMapping.at(logic_pin_num);
+    }
+
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     void   SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }

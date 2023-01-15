@@ -183,14 +183,16 @@ class Apparatus {
         }
         }
 
-        std::string answer_to_master =
-          response_header + ' ' + std::to_string(board->GetAddress()) + ':' + std::to_string(pin) + " -> ";
+        std::string answer_to_master = response_header + ' ' + std::to_string(board->GetAddress()) + ':' +
+                                       std::to_string(Board::GetHarnessPinNumFromLogicPinNum(pin)) + " -> ";
 
         for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
             std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
 
             auto pin_counter = 0;
             for (auto voltage : voltage_table_from_board.voltagesArray) {
+                auto harness_pin_id = Board::GetHarnessPinNumFromLogicPinNum(pin_counter);
+
                 if (pin == pin_counter and board->GetAddress() == voltage_table_from_board.boardAddress) {
                     if (voltage == 0) {
                         console.LogError("Pin is not connected to itself!");
@@ -200,19 +202,18 @@ class Apparatus {
 
                 if (voltage > 0) {
                     if (analysis_type == ConnectionAnalysis::SimpleBoolean) {
-                        answer_to_master.append(board_affinity + ':' + std::to_string(pin_counter) + ' ');
+                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + ' ');
                     }
                     else if (analysis_type == ConnectionAnalysis::Resistance) {
                         answer_to_master.append(
-                          board_affinity + ':' + std::to_string(pin_counter) + '(' +
+                          board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
                           StringParser::ConvertFpValueWithPrecision(CalculateConnectionResistanceFromAdcValue(voltage),
                                                                     1) +
                           ") ");
                     }
                     else if (analysis_type == ConnectionAnalysis::Voltage) {
-                        answer_to_master.append(
-                          board_affinity + ':' + std::to_string(pin_counter) + '(' +
-                          StringParser::ConvertFpValueWithPrecision((voltage), 2) + ") ");
+                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
+                                                StringParser::ConvertFpValueWithPrecision((voltage), 2) + ") ");
                     }
                 }
 
