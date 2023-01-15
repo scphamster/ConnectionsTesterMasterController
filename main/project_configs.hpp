@@ -21,7 +21,9 @@ enum BoardsConfigs {
     NumberOfPins = 32,
     MinAddress = 32,
     MaxAddress = 80,
-    DelayBeforeCheckOfInternalCounterAfterInitializationMs = 500
+    DelayBeforeCheckOfInternalCounterAfterInitializationMs = 500,
+    CommandSendRetryNumber = 3,
+    DelayBeforeAcknowledgeCheckMs = 7,
 };
 
 enum Tasks {

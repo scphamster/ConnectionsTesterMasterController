@@ -25,6 +25,7 @@ class Apparatus {
     using CircuitParamT      = float;
     using VoltageT           = CircuitParamT;
     using ResistanceT        = CircuitParamT;
+    using CommResult         = Board::Result;
 
     void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
     {
@@ -91,16 +92,9 @@ class Apparatus {
         Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeCheckOfInternalCounterAfterInitializationMs);
 
         for (auto const &board : ioBoards) {
-            auto counter_value = board->GetBoardCounterValue();
-            if (not counter_value) {
-                console.LogError("Board with address: " + std::to_string(board->GetAddress()) +
-                                 " has not properly answered to CounterValue request");
-            }
-            else {
-                console.Log("Board with address: " + std::to_string(board->GetAddress()) +
-                            " properly answered for InternalCounter Command, value = " + std::to_string(*counter_value));
-            }
-            board->SetOutputVoltageValue(OutputVoltageLevel::_07);
+            auto [comm_result, counter_value] =
+              board->GetBoardCounterValue(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
         }
     }
     void SendAllBoardsIds() noexcept
@@ -281,17 +275,17 @@ class Apparatus {
             return;
         }
 
-        auto counter_value = (*board)->GetBoardCounterValue();
-        if (not counter_value) {
-            console.LogError("Get board counter value command unsuccessful");
-            return;
+        auto [comm_result, counter_value] =
+          (*board)->GetBoardCounterValue(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        std::string response_string;
+
+        if (comm_result == CommResult::Good) {
+            response_string =
+              "TIMER " + std::to_string(board_addr) + " dummyarg -> " + std::to_string(*counter_value) + " END\n";
         }
 
-        std::string counter_value_answer =
-          "TIMER " + std::to_string(board_addr) + " dummyarg -> " + std::to_string(*counter_value) + " END\n";
-
-        bluetooth->Write(counter_value_answer);
-        console.Log(counter_value_answer);
+        bluetooth->Write(response_string);
+        console.Log(response_string);
     }
     std::optional<std::vector<PinsVoltages>> MeasureAll(bool sequential) noexcept
     {
@@ -543,36 +537,14 @@ class Apparatus {
         while (true) {
             ioBoards.at(0)->SetVoltageAtPin(pin);
             Task::DelayMs(3);
-            auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
-            if (voltages) {
-                int pin_counter = 0;
-                //                for (auto const voltage : *voltages) {
-                //                    if (voltage > 1023) {
-                //                        bad_pin     = pin_counter;
-                //                        bad_voltage = voltage;
-                //                    }
-                //                    pin_counter++;
-                //                }
+            auto [comm_result, voltages] = ioBoards.at(0)->GetAllPinsVoltages();
 
-                if (bad_pin != -1) {
-                    console.LogError("Checked pin: " + std::to_string(pin) + " Bad pin voltage at pin:" +
-                                     std::to_string(bad_pin) + ", voltage=" + std::to_string(bad_voltage));
-                    bad_pin     = -1;
-                    bad_voltage = -1;
-
-                    while (true) {
-                        testPin.SetLevel(Pin::Level::High);
-                        Task::DelayMs(100);
-                    }
-                }
-                else {
-                    console.Log("OK");
-                    bluetooth->Write("OK\n");
-                }
+            if (comm_result != CommResult::Good) {
+                console.LogError("Bad result from getting all voltages!");
+                continue;
             }
 
             pin++;
-
             Task::DelayMs(5);
             if (pin == 31)
                 pin = 0;
@@ -581,11 +553,14 @@ class Apparatus {
     [[noreturn]] void UnitTestGetCounter() noexcept
     {
         while (true) {
-            auto counter = ioBoards.at(0)->GetBoardCounterValue();
+            auto [comm_result, counter] = ioBoards.at(0)->GetBoardCounterValue();
 
-            if (counter) {
-                console.Log("counter value = " + std::to_string(*counter));
+            if (comm_result != CommResult::Good) {
+                console.LogError("Bad!");
+                continue;
             }
+
+            console.Log("counter value = " + std::to_string(*counter));
 
             Task::DelayMs(500);
         }
@@ -603,11 +578,14 @@ class Apparatus {
     {
         while (true) {
             for (auto pin_counter = 0; pin_counter < 32; pin_counter++) {
-                auto pin_v = ioBoards.at(0)->GetPinVoltage(pin_counter);
+                auto [comm_result, pin_v] = ioBoards.at(0)->GetPinVoltage(pin_counter);
 
-                if (pin_v) {
-                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
+                if (comm_result != CommResult::Good) {
+                    console.LogError("Bad");
+                    continue;
                 }
+
+                console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
                 Task::DelayMs(500);
             }
         }
@@ -615,21 +593,29 @@ class Apparatus {
     [[noreturn]] void UnitTestTwoCommands() noexcept
     {
         while (true) {
-            auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
-            if (voltages) {
-                int pin_counter = 0;
-                for (auto const voltage : *voltages) {
-                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(voltage));
-                    pin_counter++;
-                }
+            auto [comm_result, voltages] = ioBoards.at(0)->GetAllPinsVoltages();
+
+            if (comm_result != CommResult::Good) {
+                console.LogError("Get All bad result!");
+                continue;
             }
+
+            int pin_counter = 0;
+            for (auto const voltage : *voltages) {
+                console.Log(std::to_string(pin_counter) + ' ' + std::to_string(voltage));
+                pin_counter++;
+            }
+
             Task::DelayMs(500);
             for (auto pin_counter = 0; pin_counter < 32; pin_counter++) {
-                auto pin_v = ioBoards.at(0)->GetPinVoltage(pin_counter);
+                auto [comm_result, pin_v] = ioBoards.at(0)->GetPinVoltage(pin_counter);
 
-                if (pin_v) {
-                    console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
+                if (comm_result != CommResult::Good) {
+                    console.LogError("Bad response at pin:" + std::to_string(pin_counter));
+                    break;
                 }
+
+                console.Log(std::to_string(pin_counter) + ' ' + std::to_string(*pin_v));
                 Task::DelayMs(500);
             }
         }
@@ -655,16 +641,17 @@ class Apparatus {
             }
 
             Task::DelayMs(100);
-            auto result = i2c->Read<decltype(data)>(ioBoards.at(0)->GetAddress(), 200);
+            auto [operation_result, result] = i2c->Read<decltype(data)>(ioBoards.at(0)->GetAddress(), 200);
 
-            if (result) {
-                int counter = 0;
-                for (auto const &value : *result) {
-                    if (value > 1023) {
-                        console.Log(std::to_string(value));
-                        console.LogError("Counter= " + std::to_string(counter) + " value:" + std::to_string(value));
-                    }
-                }
+            if (operation_result != IIC::OperationResult::OK) {
+                console.LogError("Unsuccessful read!");
+                continue;
+            }
+
+            int counter = 0;
+            for (auto const &value : *result) {
+                console.Log(std::to_string(value));
+                console.LogError("Counter= " + std::to_string(counter) + " value:" + std::to_string(value));
             }
 
             Task::DelayMs(100);
@@ -742,7 +729,9 @@ class Apparatus {
                     }
 
                     auto result = ioBoards.at(0)->SetNewBoardAddress(args.at(0));
-                    if (result) {
+
+
+                    if (result == CommResult::Good) {
                         bluetooth->Write("CMD OK END\n");
                     }
                     else {
@@ -753,7 +742,7 @@ class Apparatus {
                     auto board = FindBoardWithAddress(args.at(0));
                     if (board) {
                         auto result = (*board)->SetNewBoardAddress(args.at(1));
-                        if (result) {
+                        if (result == CommResult::Good) {
                             bluetooth->Write("CMD OK END\n");
                         }
                         else {

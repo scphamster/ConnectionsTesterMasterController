@@ -23,11 +23,21 @@ class Board {
     using AllPinsVoltages   = std::array<ADCValueT, pinCount>;
     using AllPinsVoltages8B = std::array<AdcValueLoRes, pinCount>;
 
+    enum class Result {
+        BadCommunication,
+        BadAcknowledge,
+        BadAnswerFormat,
+        UnhealthyAnswerValue,
+        Good,
+        BoardAnsweredFail
+    };
+
     struct PinsVoltages {
+        Result            readResult;
         AddressT          boardAddress;
         AllPinsVoltages8B voltagesArray;
     };
-    using QueueT = Queue<PinsVoltages>;
+    using VoltagesQ = Queue<PinsVoltages>;
     enum class Command {
         SetPinVoltage      = 0xC1,
         GetInternalCounter = 0xC2,
@@ -70,7 +80,7 @@ class Board {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
         size_t static constexpr delayBeforeResultCheck = 100;
     };
-    Board(AddressT board_hw_address, std::shared_ptr<QueueT> data_queue)
+    Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue)
       : dataLink{ board_hw_address }
       , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
@@ -83,79 +93,92 @@ class Board {
     {
         voltageTableCheckTask.Start();
     }
-    [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
+    [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
-    void SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
-    void SetVoltageAtPin(PinNumT pin) noexcept
+    void   SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
+    Result SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
     {
-        if (not SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) })) {
+        auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) }, retry_times);
+
+        if (result != Result::Good) {
             console.LogError("Voltage setting on pin " + std::to_string(pin) + " unsuccessful");
         }
+
+        return result;
     }
-    void SetOutputVoltageValue(OutputVoltage value) noexcept
+    Result SetOutputVoltageValue(OutputVoltage value, int retry_times = 0) noexcept
     {
-        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::SetOutputVoltage),
-                        CommandArgsT{ static_cast<Byte>(value) })) {
+        auto result =
+          SendCmd(ToUnderlying(Command::SetOutputVoltage), CommandArgsT{ static_cast<Byte>(value) }, retry_times);
+
+        if (result != Result::Good) {
             console.LogError("Voltage setting unsuccessful");
         }
+
+        return result;
     }
-    void DisableOutput()
+    void DisableOutput(int retry_times = 0)
     {
-        SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll));
+        SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
+                        retry_times);
     }
-    bool StartTest()
+    bool StartTest(int retry_times = 0)
     {
-        auto result = SendCmd(ToUnderlying(Command::StartTest));
-        if (not result) {
+        auto result = SendCmd(ToUnderlying(Command::StartTest), retry_times);
+        if (result != Result::Good) {
             console.LogError("Test Start Unsuccessful!");
         }
 
-        return result;
+        return false;
     }
 
-    std::optional<InternalCounterT> GetBoardCounterValue() noexcept
+    std::pair<Result, std::optional<InternalCounterT>> GetBoardCounterValue(int retry_times = 0) noexcept
     {
-        auto result = SendCmdAndReadResponse<InternalCounterT>(GetInternalCounter::command,
-                                                               GetInternalCounter::delayBeforeResultCheck);
+        auto [comm_result, response] =
+          SendCmdAndReadResponse<InternalCounterT>(GetInternalCounter::command,
+                                                   GetInternalCounter::delayBeforeResultCheck,
+                                                   retry_times);
 
-        if (not result) {
+        if (comm_result != Result::Good) {
             console.LogError("Get counter value command not succeeded");
-            return std::nullopt;
+            return { comm_result, std::nullopt };
         }
 
-        if (*result == UINT32_MAX or *result == 0) {
+        if (*response == UINT32_MAX or *response == 0) {
             console.LogError("Board did not answer properly for GetInternalCounter command, result is:" +
-                             std::to_string(*result));
-            return std::nullopt;
+                             std::to_string(*response));
+            return { Result::UnhealthyAnswerValue, std::nullopt };
         }
 
-        return result;
+        return { comm_result, response };
     }
-    std::optional<ADCValueT> GetPinVoltage(Byte pin) noexcept
+    std::pair<Result, std::optional<ADCValueT>> GetPinVoltage(Byte pin, int retry_times = 0) noexcept
     {
-        auto adc_val = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
-                                                         CommandArgsT{ pin },
-                                                         VoltageCheckCmd::timeToWaitForResponseOnePinMs);
-        if (not adc_val) {
+        auto [comm_result, response] = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
+                                                                         CommandArgsT{ pin },
+                                                                         VoltageCheckCmd::timeToWaitForResponseOnePinMs,
+                                                                         retry_times);
+
+        if (comm_result != Result::Good) {
             console.LogError("Voltage check command for pin " + std::to_string(pin) + " unsuccessful");
-            return std::nullopt;
+            return { comm_result, std::nullopt };
         }
 
-        return adc_val;
+        return { comm_result, response };
     }
-    std::optional<AllPinsVoltages8B> GetAllPinsVoltages() noexcept
+    std::pair<Result, std::optional<AllPinsVoltages8B>> GetAllPinsVoltages(int retry_times = 0) noexcept
     {
-        auto voltages =
+        auto [comm_result, voltages] =
           SendCmdAndReadResponse<AllPinsVoltages8B>(static_cast<Byte>(Command::GetPinVoltage),
                                                     CommandArgsT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
                                                     VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
 
-        if (not voltages) {
-            console.LogError("Reading all pins voltage unsuccessful");
-            return std::nullopt;
+        if (comm_result != Result::Good) {
+            console.LogError("Reading all pins voltages unsuccessful");
+            return { comm_result, std::nullopt };
         }
 
-        return voltages;
+        return { comm_result, voltages };
     }
     std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
     {
@@ -184,59 +207,105 @@ class Board {
 
         return response;
     }
-    bool SetNewBoardAddress(AddressT new_address)
+    Result SetNewBoardAddress(AddressT new_address)
     {
         if (new_address < ProjCfg::BoardsConfigs::MinAddress or new_address > ProjCfg::BoardsConfigs::MaxAddress) {
             throw std::invalid_argument("address value is out of range!");
         }
 
-        auto send_succeeded = SendCmd(SetOwnAddressCmd::command, new_address);
-
-        //        if (not send_succeeded) return false;
+        // todo: add check if succeeded
+        SendCmd(SetOwnAddressCmd::command, new_address);
 
         SetNewAddress(new_address);
 
         Task::DelayMs(SetOwnAddressCmd::delayBeforeResultCheck);
 
-        auto result = dataLink.ReadBoardAnswer<Byte>();
+        auto [read_result, answer] = dataLink.ReadBoardAnswer<Byte>();
 
-        if (result) {
-            if (*result == BoardAnswer::OK) {
-                console.Log("Ok arrived");
-                return true;
-            }
-            else if (*result == BoardAnswer::FAIL) {
-                console.LogError("Fail arrived");
-                return false;
-            }
-            else {
-                console.LogError("Unknown answer arrived: " + std::to_string(*result));
-                return false;
-            }
+        if (read_result != DataLink::Result::Good)
+            return Result::BadCommunication;
+
+        if (*answer == BoardAnswer::OK) {
+            console.Log("Ok arrived");
+            return Result::Good;
         }
-        else
-            return false;
+        else if (*answer == BoardAnswer::FAIL) {
+            console.LogError("Fail arrived");
+            return Result::BoardAnsweredFail;
+        }
+        else {
+            console.LogError("Unknown answer arrived: " + std::to_string(*answer));
+            return Result::BadAnswerFormat;
+        }
     }
 
   protected:
-    bool SendCmd(Byte cmd, CommandArgsT args) noexcept { return dataLink.SendCommand(cmd, args); }
-    bool SendCmd(Byte cmd) noexcept { return SendCmd(cmd, CommandArgsT{}); }
-    template<typename ReturnType>
-    std::optional<ReturnType> SendCmdAndReadResponse(Byte cmd, CommandArgsT args, size_t delay_for_response_ms) noexcept
+    Result SendCmd(Byte cmd, CommandArgsT args, int retry_times = 0) noexcept
     {
-        if (not dataLink.SendCommand(cmd, args)) {
-            console.LogError("Command sending not successful, cmd=" + std::to_string(cmd));
-            return std::nullopt;
+        int retry_counter = 0;
+
+        DataLink::Result result;
+        do {
+            result = dataLink.SendCommandAndCheckAcknowledge(cmd, args);
+            if (result == DataLink::Result::Good)
+                return Result::Good;
+
+            retry_counter++;
+        } while (retry_counter < retry_times);
+
+        if (result == DataLink::Result::BadAcknowledge)
+            return Result::BadAcknowledge;
+
+        return Result::BadCommunication;
+    }
+    Result SendCmd(Byte cmd, int retry_times = 0) noexcept { return SendCmd(cmd, CommandArgsT{}, retry_times); }
+    template<typename ReturnType>
+    std::pair<Result, std::optional<ReturnType>> ReadResponse(int retry_times = 0) noexcept
+    {
+        DataLink::Result result;
+
+        int retry_counter = 0;
+        do {
+            auto [read_result, value] = dataLink.ReadBoardAnswer<ReturnType>();
+            result = read_result;
+
+            if (read_result == DataLink::Result::Good)
+                return { Result::Good, value };
+
+            retry_counter++;
+        } while (retry_counter < retry_times);
+
+        if (result == DataLink::Result::BadCommunication)
+            return { Result::BadCommunication, std::nullopt };
+        if (result == DataLink::Result::BadAcknowledge)
+            return { Result::BadAcknowledge, std::nullopt };
+        else
+            return { Result::BadCommunication, std::nullopt };
+    }
+
+    template<typename ReturnType>
+    std::pair<Result, std::optional<ReturnType>> SendCmdAndReadResponse(Byte         cmd,
+                                                                        CommandArgsT args,
+                                                                        size_t       delay_for_response_ms,
+                                                                        int          retry_times = 0) noexcept
+    {
+        auto send_result = SendCmd(cmd, args, retry_times);
+
+        if (send_result != Result::Good) {
+            console.LogError("Unsuccessful command sending (" + std::to_string(cmd) + ")");
+            return { send_result, std::nullopt };
         }
 
         Task::DelayMsUntil(delay_for_response_ms);
 
-        return dataLink.ReadBoardAnswer<ReturnType>();
+        return ReadResponse<ReturnType>(retry_times);
     }
     template<typename ReturnType>
-    std::optional<ReturnType> SendCmdAndReadResponse(Byte cmd, size_t delay_for_response_ms) noexcept
+    std::pair<Result, std::optional<ReturnType>> SendCmdAndReadResponse(Byte   cmd,
+                                                                        size_t delay_for_response_ms,
+                                                                        int    retry_times = 0) noexcept
     {
-        return SendCmdAndReadResponse<ReturnType>(cmd, CommandArgsT{}, delay_for_response_ms);
+        return SendCmdAndReadResponse<ReturnType>(cmd, CommandArgsT{}, delay_for_response_ms, retry_times);
     }
 
     // tasks
@@ -245,27 +314,25 @@ class Board {
         while (true) {
             getAllPinsVoltagesSemaphore->Take_BlockInfinitely();
 
-            auto result = GetAllPinsVoltages();
+            auto [comm_result, voltages] = GetAllPinsVoltages();
 
-            if (result == std::nullopt) {
-                console.LogError("board with adress: " + std::to_string(dataLink.GetAddres()) +
-                                 " all pins voltages bad result!");
+            if (comm_result != Result::Good) {
+                allPinsVoltagesTableQueue->Send(PinsVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
                 continue;
             }
 
-            int counter = 0;
-            for (const auto &voltage : *result) {
-                //                if (voltage > 1023) {
-                //                    console.LogError("voltage value higher than 1023: " + std::to_string(voltage));
-                //                    if (counter != 0)
-                //                        console.LogError("previous voltage was: " + std::to_string((*result).at(counter
-                //                        - 1)));
-                //                }
+            Result operation_result = Result::BoardAnsweredFail;
+            int    pin_counter      = 0;
+            for (auto const voltage : *voltages) {
+                if (voltage == UINT8_MAX) {
+                    console.LogError("voltage value at pin " + std::to_string(pin_counter) + "is clipped(maxed, =255)");
+                    operation_result = Result::UnhealthyAnswerValue;
+                }
 
-                counter++;
+                pin_counter++;
             }
 
-            allPinsVoltagesTableQueue->Send(PinsVoltages{ dataLink.GetAddres(), *result });
+            allPinsVoltagesTableQueue->Send(PinsVoltages{ operation_result, dataLink.GetAddress(), *voltages });
         }
     }
 
@@ -277,7 +344,7 @@ class Board {
     };
     DataLink                   dataLink;
     SmartLogger                console;
-    std::shared_ptr<QueueT>    allPinsVoltagesTableQueue;
+    std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
     Task                       voltageTableCheckTask;
 };

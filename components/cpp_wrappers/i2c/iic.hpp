@@ -26,7 +26,7 @@ class IIC {
     enum class OperationResult {
         OK                 = 0,
         Fail               = -1,
-        ErrNoMemmory       = 0x101,
+        ErrNoMemory        = 0x101,
         ErrInvalidArgs     = 0x102,
         ErrInvalidState    = 0x103,
         ErrInvalidSize     = 0x104,
@@ -57,9 +57,7 @@ class IIC {
         return _this;
     }
 
-    void SetNewFrequency() {
-    }
-
+    void SetNewFrequency() { }
 
     OperationResult Write(PeripheralAddress address, BufferT const &data_to_be_sent, size_t timeout_ms) noexcept
     {
@@ -79,25 +77,25 @@ class IIC {
         return static_cast<OperationResult>(result);
     }
     template<typename ReturnType>
-    std::optional<ReturnType> Read(PeripheralAddress address, TickType_t timeout_ms) noexcept
+    std::pair<OperationResult, std::optional<ReturnType>> Read(PeripheralAddress address, TickType_t timeout_ms) noexcept
     {
         auto read_buffer = std::array<Byte, sizeof(ReturnType)>();
 
         i2c_mutex.lock();
         auto result = static_cast<OperationResult>(i2c_master_read_from_device(i2cModuleNum,
-                                                                                          address,
-                                                                                          read_buffer.data(),
-                                                                                          read_buffer.size(),
-                                                                                          pdMS_TO_TICKS(timeout_ms)));
+                                                                               address,
+                                                                               read_buffer.data(),
+                                                                               read_buffer.size(),
+                                                                               pdMS_TO_TICKS(timeout_ms)));
         i2c_mutex.unlock();
 
         if (result != OperationResult::OK) {
-            logger.LogError("read from device " + std::to_string(address) +
-                            " unsuccessful, error: " + std::to_string(static_cast<int>(result)));
-            return std::nullopt;
+            logger.LogError("Read error from addr:" + std::to_string(address) + " : " +
+                            std::to_string(static_cast<int>(result)));
+            return { result, std::nullopt };
         }
 
-        return *reinterpret_cast<ReturnType*>(read_buffer.data());
+        return { result, *reinterpret_cast<ReturnType *>(read_buffer.data()) };
     }
     std::optional<std::vector<Byte>> Read(PeripheralAddress address, size_t bytes_to_read, size_t timeout_ms) noexcept
     {
@@ -151,10 +149,11 @@ class IIC {
 
         return { true, *(reinterpret_cast<ReturnType *>(read_buffer.data())) };
     }
+
   protected:
   private:
     IIC(Role role, int sda_pin_num, int scl_pin_num, size_t clock_freq_hz) noexcept
-      : logger{ "i2c", ProjCfg::EnableLogForComponent::IIC }
+      : logger{ "IIC", ProjCfg::EnableLogForComponent::IIC }
     {
         i2c_config_t conf{};
 
