@@ -88,7 +88,7 @@ class Apparatus {
             console.LogError("No boards found, check was performed between addresses: " + std::to_string(start_address) +
                              " and " + std::to_string(last_address));
 
-        Task::DelayMs(500);
+        Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeCheckOfInternalCounterAfterInitializationMs);
 
         for (auto const &board : ioBoards) {
             auto counter_value = board->GetBoardCounterValue();
@@ -152,7 +152,7 @@ class Apparatus {
 
         for (PinNumT pin = 0; pin < pin_count_at_board; pin++) {
             board->SetVoltageAtPin(pin);
-            Task::DelayMs(3);
+            Task::DelayMs(5);
 
             auto voltage_tables_from_all_boards = MeasureAll(sequential);
             board->DisableOutput();
@@ -244,7 +244,6 @@ class Apparatus {
             console.LogError("Board with address: " + std::to_string(board_address) + " not found");
             return;
         }
-
         (*board)->SetVoltageAtPin(pin);
 
         auto voltage_tables_from_all_boards = MeasureAll(true);
@@ -547,21 +546,21 @@ class Apparatus {
             auto voltages = ioBoards.at(0)->GetAllPinsVoltages();
             if (voltages) {
                 int pin_counter = 0;
-                for (auto const voltage : *voltages) {
-                    if (voltage > 1023) {
-                        bad_pin     = pin_counter;
-                        bad_voltage = voltage;
-                    }
-                    pin_counter++;
-                }
+                //                for (auto const voltage : *voltages) {
+                //                    if (voltage > 1023) {
+                //                        bad_pin     = pin_counter;
+                //                        bad_voltage = voltage;
+                //                    }
+                //                    pin_counter++;
+                //                }
 
                 if (bad_pin != -1) {
-                    console.LogError("Checked pin: " + std::to_string(pin) + " Bad pin voltage at pin:" + std::to_string(bad_pin) +
-                                     ", voltage=" + std::to_string(bad_voltage));
+                    console.LogError("Checked pin: " + std::to_string(pin) + " Bad pin voltage at pin:" +
+                                     std::to_string(bad_pin) + ", voltage=" + std::to_string(bad_voltage));
                     bad_pin     = -1;
                     bad_voltage = -1;
 
-                    while(true) {
+                    while (true) {
                         testPin.SetLevel(Pin::Level::High);
                         Task::DelayMs(100);
                     }
@@ -807,7 +806,7 @@ class Apparatus {
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
-    Pin testPin{26, Pin::Direction::Output};
+    Pin testPin{ 26, Pin::Direction::Output };
 
     std::shared_ptr<Queue<char>> fromUserInputQ;
     std::shared_ptr<Bluetooth>   bluetooth;

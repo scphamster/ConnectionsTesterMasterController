@@ -20,7 +20,8 @@ enum BoardsConfigs {
     SCL_Pin    = 32,
     NumberOfPins = 32,
     MinAddress = 32,
-    MaxAddress = 80
+    MaxAddress = 80,
+    DelayBeforeCheckOfInternalCounterAfterInitializationMs = 500
 };
 
 enum Tasks {

@@ -13,19 +13,19 @@ class Board {
   public:
     auto static constexpr pinCount = ProjCfg::BoardsConfigs::NumberOfPins;
 
-    using Byte             = uint8_t;
-    using PinNumT          = size_t;
-    using AddressT         = Byte;
-    using ADCValueT        = uint16_t;
-    using AdcValueLoRes    = Byte;
-    using InternalCounterT = uint32_t;
+    using Byte              = uint8_t;
+    using PinNumT           = size_t;
+    using AddressT          = Byte;
+    using ADCValueT         = uint16_t;
+    using AdcValueLoRes     = Byte;
+    using InternalCounterT  = uint32_t;
     using CommandArgsT      = Byte;
     using AllPinsVoltages   = std::array<ADCValueT, pinCount>;
     using AllPinsVoltages8B = std::array<AdcValueLoRes, pinCount>;
 
     struct PinsVoltages {
-        AddressT        boardAddress;
-        AllPinsVoltages voltagesArray;
+        AddressT          boardAddress;
+        AllPinsVoltages8B voltagesArray;
     };
     using QueueT = Queue<PinsVoltages>;
     enum class Command {
@@ -46,14 +46,15 @@ class Board {
     };
 
     struct VoltageCheckCmd {
+        using PinNum = Byte;
         enum SpecialMeasurements : Byte {
             MeasureAll = 33,
             MeasureVCC,
             MeasureGND
         };
-        using PinNum                                               = uint8_t;
-        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 14;
-        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 50;
+
+        TickType_t static constexpr timeToWaitForResponseAllPinsMs = 15;
+        TickType_t static constexpr timeToWaitForResponseOnePinMs  = 15;
         PinNum pin;
     };
     struct VoltageSetCmd {
@@ -62,8 +63,12 @@ class Board {
         };
     };
     struct SetOwnAddressCmd {
-        Byte static constexpr command                = 0xc5;
-        size_t static constexpr waitForResultDelayMs = 500;
+        Byte static constexpr command                  = 0xc5;
+        size_t static constexpr delayBeforeResultCheck = 500;
+    };
+    struct GetInternalCounter {
+        Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
+        size_t static constexpr delayBeforeResultCheck = 100;
     };
     Board(AddressT board_hw_address, std::shared_ptr<QueueT> data_queue)
       : dataLink{ board_hw_address }
@@ -81,9 +86,9 @@ class Board {
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddres(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     void SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
-    void SetVoltageAtPin(Byte pin) noexcept
+    void SetVoltageAtPin(PinNumT pin) noexcept
     {
-        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::SetPinVoltage), CommandArgsT{ pin })) {
+        if (not SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) })) {
             console.LogError("Voltage setting on pin " + std::to_string(pin) + " unsuccessful");
         }
     }
@@ -110,14 +115,21 @@ class Board {
 
     std::optional<InternalCounterT> GetBoardCounterValue() noexcept
     {
-        if (not SendCmd(static_cast<std::underlying_type_t<Command>>(Command::GetInternalCounter))) {
+        auto result = SendCmdAndReadResponse<InternalCounterT>(GetInternalCounter::command,
+                                                               GetInternalCounter::delayBeforeResultCheck);
+
+        if (not result) {
             console.LogError("Get counter value command not succeeded");
             return std::nullopt;
-        };
+        }
 
-        Task::DelayMs(5);
+        if (*result == UINT32_MAX or *result == 0) {
+            console.LogError("Board did not answer properly for GetInternalCounter command, result is:" +
+                             std::to_string(*result));
+            return std::nullopt;
+        }
 
-        return dataLink.ReadBoardAnswer<InternalCounterT>();
+        return result;
     }
     std::optional<ADCValueT> GetPinVoltage(Byte pin) noexcept
     {
@@ -131,12 +143,12 @@ class Board {
 
         return adc_val;
     }
-    std::optional<AllPinsVoltages> GetAllPinsVoltages() noexcept
+    std::optional<AllPinsVoltages8B> GetAllPinsVoltages() noexcept
     {
         auto voltages =
-          SendCmdAndReadResponse<AllPinsVoltages>(static_cast<Byte>(Command::GetPinVoltage),
-                                                  CommandArgsT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
-                                                  VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
+          SendCmdAndReadResponse<AllPinsVoltages8B>(static_cast<Byte>(Command::GetPinVoltage),
+                                                    CommandArgsT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
+                                                    VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
 
         if (not voltages) {
             console.LogError("Reading all pins voltage unsuccessful");
@@ -144,7 +156,6 @@ class Board {
         }
 
         return voltages;
-
     }
     std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
     {
@@ -185,7 +196,7 @@ class Board {
 
         SetNewAddress(new_address);
 
-        Task::DelayMs(SetOwnAddressCmd::waitForResultDelayMs);
+        Task::DelayMs(SetOwnAddressCmd::delayBeforeResultCheck);
 
         auto result = dataLink.ReadBoardAnswer<Byte>();
 
@@ -244,11 +255,12 @@ class Board {
 
             int counter = 0;
             for (const auto &voltage : *result) {
-                if (voltage > 1023) {
-                    console.LogError("voltage value higher than 1023: " + std::to_string(voltage));
-                    if (counter != 0)
-                        console.LogError("previous voltage was: " + std::to_string((*result).at(counter - 1)));
-                }
+                //                if (voltage > 1023) {
+                //                    console.LogError("voltage value higher than 1023: " + std::to_string(voltage));
+                //                    if (counter != 0)
+                //                        console.LogError("previous voltage was: " + std::to_string((*result).at(counter
+                //                        - 1)));
+                //                }
 
                 counter++;
             }

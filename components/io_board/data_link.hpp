@@ -120,7 +120,7 @@ class DataLink {
     auto constexpr static xferTimeout                          = 500;
     auto constexpr static flushReadsMaxCount                   = 100;
     auto constexpr static valueIndicatesEmptyBoardOutputBuffer = 0xff;
-    auto constexpr static delayBeforeCommandAckCheck           = 3;
+    auto constexpr static delayBeforeCommandAckCheck           = 5;
     SmartLogger          logger;
     std::shared_ptr<IIC> driver;
     AddressT             boardAddress;
