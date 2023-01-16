@@ -15,7 +15,7 @@ enum BluetoothCfg {
 };
 
 enum BoardsConfigs {
-    IICSpeedHz = 200000,
+    IICSpeedHz = 150000,
     SDA_Pin    = 33,
     SCL_Pin    = 32,
     NumberOfPins = 32,

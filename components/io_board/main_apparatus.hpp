@@ -79,6 +79,8 @@ class Apparatus {
         auto constexpr start_address = 0x01;
         auto constexpr last_address  = 0x7F;
 
+        ioBoards.clear();
+
         Task::DelayMs(500);
 
         for (auto addr = start_address; addr <= last_address; addr++) {
@@ -141,8 +143,14 @@ class Apparatus {
     {
         for (auto const &board : ioBoards) {
             console.Log("Setting voltage level");
-            board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
-            Task::DelayMs(5);
+            auto result = board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+
+            if (result != CommResult::Good) {
+                Task::DelayMs(100);
+                board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            }
+
+            Task::DelayMs(10);
         }
     }
 
@@ -723,6 +731,7 @@ class Apparatus {
                 EnableOutputForPin(args.at(0));
             } break;
             case UserCommand::GetAllBoardsIds: {
+                FindAllConnectedBoards();
                 SendAllBoardsIds();
             } break;
             case UserCommand::GetInternalCounter: {

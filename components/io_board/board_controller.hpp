@@ -53,6 +53,7 @@ class Board {
     };
     enum BoardAnswer {
         OK   = 0xa5,
+        REPEAT_CMD_TO_CONFIRM = 0xAF,
         FAIL = 0x50
     };
     enum class OutputVoltage : uint8_t {
@@ -79,9 +80,11 @@ class Board {
             DisableAll = 254
         };
     };
-    struct SetOwnAddressCmd {
+    struct SetNewBoardAddressCmd {
         Byte static constexpr command                  = 0xc5;
         size_t static constexpr delayBeforeResultCheck = 500;
+        auto constexpr static NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION = 3;
+
     };
     struct GetInternalCounter {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
@@ -111,7 +114,6 @@ class Board {
 
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
-    void   SetNewAddress(AddressT i2c_address) noexcept { dataLink.SetNewAddress(i2c_address); }
     Result SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
     {
         auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) }, retry_times);
@@ -255,19 +257,45 @@ class Board {
         }
 
         // todo: add check if succeeded
-        SendCmd(SetOwnAddressCmd::command, new_address);
 
-        SetNewAddress(new_address);
+        int number_of_confirmations_left = SetNewBoardAddressCmd::NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION;
 
-        Task::DelayMs(SetOwnAddressCmd::delayBeforeResultCheck);
+        while(number_of_confirmations_left-- > 0) {
+            Task::DelayMs(50);
 
+            auto send_result = SendCmd(SetNewBoardAddressCmd::command, new_address);
+            Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheck);
+            auto [read_result, answer] = dataLink.ReadBoardAnswer<Byte>();
+
+            if (read_result != DataLink::Result::Good)
+                return Result::BadCommunication;
+
+            if (*answer == BoardAnswer::REPEAT_CMD_TO_CONFIRM) {
+                console.Log("need to repeat to confirm");
+                continue;
+            }
+            else if (*answer == BoardAnswer::FAIL) {
+                console.LogError("Fail arrived");
+                return Result::BoardAnsweredFail;
+            }
+            else {
+                console.LogError("Unknown answer arrived: " + std::to_string(*answer));
+                return Result::BadAnswerFormat;
+            }
+        }
+
+        Task::DelayMs(50);
+        SendCmd(SetNewBoardAddressCmd::command, new_address);
+        dataLink.SetNewAddress(new_address);
+        Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheck);
         auto [read_result, answer] = dataLink.ReadBoardAnswer<Byte>();
 
-        if (read_result != DataLink::Result::Good)
+        if (read_result != DataLink::Result::Good) {
             return Result::BadCommunication;
+        }
 
         if (*answer == BoardAnswer::OK) {
-            console.Log("Ok arrived");
+            console.Log("Board address change success");
             return Result::Good;
         }
         else if (*answer == BoardAnswer::FAIL) {
@@ -278,6 +306,7 @@ class Board {
             console.LogError("Unknown answer arrived: " + std::to_string(*answer));
             return Result::BadAnswerFormat;
         }
+
     }
 
   protected:
