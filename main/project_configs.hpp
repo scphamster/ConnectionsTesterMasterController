@@ -46,7 +46,8 @@ enum class EnableLogForComponent : bool {
     IOBoards = false,
     Main     = false,
     BluetoothSPP = false,
-    BluettothMain = false
+    BluettothMain = false,
+    CommandInterpreter = false
 };
 enum Log {
     LogAllErrors=true

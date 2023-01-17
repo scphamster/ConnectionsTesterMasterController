@@ -59,6 +59,8 @@ set(CXX_SOURCES
 
     ${COMPONENTS_DIR}/tools/string_parser.hpp
     ${COMPONENTS_DIR}/tools/utilities.hpp
+
+    ${COMPONENTS_DIR}/master/cmd_interpreter.hpp
     )
 
 set(C_SOURCES

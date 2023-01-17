@@ -13,6 +13,7 @@
 #include "bluetooth.hpp"
 #include "string_parser.hpp"
 #include "gpio.hpp"
+#include "master/cmd_interpreter.hpp"
 
 class Apparatus {
   public:
@@ -26,6 +27,8 @@ class Apparatus {
     using VoltageT           = CircuitParamT;
     using ResistanceT        = CircuitParamT;
     using CommResult         = Board::Result;
+    using CommandCatcher     = CommandInterpreter<Bluetooth>;
+    using UserCommand        = typename CommandCatcher::UserCommand;
 
     void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
     {
@@ -44,19 +47,6 @@ class Apparatus {
     }
 
   protected:
-    enum class UserCommand {
-        MeasureAll,
-        EnableOutputForPin,
-        CheckConnections,
-        CheckResistances,
-        CheckVoltages,
-        GetAllBoardsIds,
-        GetInternalCounter,
-        GetTaskStackWatermark,
-        SetNewAddressForBoard,
-        Test,
-        Unknown
-    };
     enum class ConnectionAnalysis {
         SimpleBoolean,
         Voltage,
@@ -376,180 +366,6 @@ class Apparatus {
         }
     }
 
-    std::pair<UserCommand, std::vector<int>> WaitForUserCommand() noexcept
-    {
-        while (true) {
-            std::string cmd;
-            cmd += *fromUserInputQ->Receive();
-
-            // make sure whole command arrived, not sure if this needed
-            for (;;) {
-                auto result = fromUserInputQ->Receive(pdMS_TO_TICKS(10));
-                if (result) {
-                    cmd += (*result);
-                }
-                else
-                    break;
-            }
-            console.Log("Command arrived: " + cmd);
-
-            auto words = StringParser::GetWords(cmd);
-            if (words.at(0) == "set") {
-                int argument{ -1 };
-
-                try {
-                    argument = std::stoi(words.at(1));
-                } catch (...) {
-                    bluetooth->Write("invalid argument: " + words.at(1) + ". Example usage: set 14");
-                }
-
-                return { UserCommand::EnableOutputForPin, std::vector{ argument } };
-            }
-            else if (words.at(0) == "voltage") {
-                if (words.at(1) == "high") {
-                    SetOutputVoltageValue(OutputVoltageLevel::_09);
-                }
-                else if (words.at(1) == "low") {
-                    SetOutputVoltageValue(OutputVoltageLevel ::_07);
-                }
-                else {
-                    bluetooth->Write("invalid argument for command: " + words.at(0) + ". Respected arguments: low, high");
-                }
-            }
-            else if (words.at(0) == "check") {
-                if (words.size() >= 2) {
-                    auto second_word = words.at(1);
-
-                    auto user_command = UserCommand();
-
-                    if (second_word == "connections")
-                        user_command = UserCommand::CheckConnections;
-                    else if (second_word == "resistances")
-                        user_command = UserCommand::CheckResistances;
-                    else if (second_word == "voltages")
-                        user_command = UserCommand::CheckVoltages;
-                    else {
-                        console.LogError("Unknown command: " + second_word);
-                        return { UserCommand::Unknown, std::vector<int>() };
-                    }
-
-                    if (words.size() == 2) {
-                        return { user_command, std::vector<int>() };
-                    }
-
-                    if (words.size() == 3) {
-                        if (words.at(2) == "sequential") {
-                            return { user_command, std::vector<int>{ 1 } };
-                        }
-                        else {
-                            return { UserCommand::Unknown, std::vector<int>() };
-                        }
-                    }
-
-                    if (words.size() != 4) {
-                        console.LogError("Bad 'check' command -> number of arguments is not 2 nor 4");
-                        return { UserCommand::Unknown, std::vector<int>() };
-                    }
-
-                    int board_argument;
-                    try {
-                        board_argument = std::stoi(words.at(2));
-                    } catch (...) {
-                        console.LogError("Bad board argument for command 'check': " + words.at(2));
-                        return { UserCommand::Unknown, std::vector<int>() };
-                    }
-
-                    int pin_argument;
-                    try {
-                        pin_argument = std::stoi(words.at(3));
-                    } catch (...) {
-                        console.LogError("Bad pin argument for command 'check': " + words.at(3));
-                        return { UserCommand::Unknown, std::vector<int>() };
-                    }
-
-                    return { user_command, std::vector(board_argument, pin_argument) };
-                }
-                else if (words.size() == 4) {
-                    int boardId = -1;
-
-                    try {
-                        boardId = std::stoi(words.at(1));
-                    } catch (...) {
-                        console.LogError("invalid command 'check', bad board argument");
-                        continue;
-                    }
-
-                    int pinId = -1;
-                    try {
-                        pinId = std::stoi(words.at(2));
-                    } catch (...) {
-                        console.LogError("invalid command 'check' bad pin argument");
-                        continue;
-                    }
-
-                    return { UserCommand::CheckConnections, std::vector{ boardId, pinId } };
-                }
-                else {
-                    return { UserCommand::Unknown, std::vector<int>() };
-                }
-            }
-            else if (words.at(0) == "getboards") {
-                return { UserCommand::GetAllBoardsIds, std::vector{ 0 } };
-            }
-            else if (words.at(0) == "counter") {
-                if (words.size() == 0) {
-                    console.LogError("No board address argument provided for command: 'counter'");
-                    continue;
-                }
-
-                int board_addr = -1;
-                try {
-                    board_addr = std::stoi(words.at(1));
-                } catch (...) {
-                    console.LogError("bad argument for command: 'counter' : " + words.at(1));
-                    continue;
-                }
-
-                return { UserCommand::GetInternalCounter, std::vector{ board_addr } };
-            }
-            else if (words.at(0) == "stack") {
-                return { UserCommand::GetTaskStackWatermark, std::vector<int>() };
-            }
-            else if (words.at(0) == "newaddress") {
-                int new_addr = -1;
-                try {
-                    new_addr = std::stoi(words.at(1));
-                } catch (...) {
-                    bluetooth->Write("bad argument for command\n");
-                    console.LogError("wrong argument for commmand");
-                    return { UserCommand::Unknown, std::vector<int>() };
-                }
-
-                auto user_command = UserCommand::SetNewAddressForBoard;
-
-                if (words.size() == 2)
-                    return { user_command, std::vector{ new_addr } };
-
-                int current_address = new_addr;
-
-                try {
-                    new_addr = std::stoi(words.at(2));
-                } catch (...) {
-                    bluetooth->Write("bad argument for command\n");
-                    console.LogError("bad argument for command");
-                    return { UserCommand::Unknown, std::vector<int>() };
-                }
-
-                return { user_command, std::vector{ current_address, new_addr } };
-            }
-            else if (words.at(0) == "test") {
-                return { UserCommand::Test, std::vector<int>() };
-            }
-
-            return { UserCommand::Unknown, std::vector<int>() };
-        }
-    }
-
     // tests
     [[noreturn]] void UnitTestAllRead() noexcept
     {
@@ -697,7 +513,7 @@ class Apparatus {
     [[noreturn]] void CommandDirectorTask() noexcept
     {
         while (true) {
-            auto [command, args] = WaitForUserCommand();
+            auto [command, args] = commandCatcher.WaitForCommand();
 
             switch (command) {
             case UserCommand::CheckConnections: {
@@ -780,6 +596,13 @@ class Apparatus {
                 break;
 
             case UserCommand::Test: UnitTestAllRead(); break;
+            case UserCommand::SetOutputVoltageLevel:
+                if (args.at(0) == 1)
+                    SetOutputVoltageValue(OutputVoltageLevel::_07);
+                else if (args.at(0) == 2)
+                    SetOutputVoltageValue(OutputVoltageLevel::_09);
+
+                break;
 
             default: break;
             }
@@ -790,7 +613,7 @@ class Apparatus {
     Apparatus(std::shared_ptr<Queue<char>> input_queue)
       : console{ "Main", ProjCfg::EnableLogForComponent::Main }
       , pinsVoltagesResultsQ{ std::make_shared<QueueT>(10) }
-      , fromUserInputQ{ std::move(input_queue) }
+      , commandCatcher{ std::move(input_queue) }
       , bluetooth{ Bluetooth::Get() }
       , measurementsTask{ [this]() { CommandDirectorTask(); },
                           static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskStackSize),
@@ -818,9 +641,10 @@ class Apparatus {
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
+    CommandCatcher commandCatcher;
+
     Pin testPin{ 26, Pin::Direction::Output };
 
-    std::shared_ptr<Queue<char>> fromUserInputQ;
-    std::shared_ptr<Bluetooth>   bluetooth;
-    Task                         measurementsTask;
+    std::shared_ptr<Bluetooth> bluetooth;
+    Task                       measurementsTask;
 };
