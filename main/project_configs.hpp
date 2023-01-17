@@ -28,6 +28,7 @@ enum BoardsConfigs {
     DelayAfterPinVoltageSetMs = 1,
     DelayBeforeReadAllPinsVoltagesResult = 11,
     DelayBeforeRetryCommandSendMs = 50,
+    DisableOutputRetryTimes = 5
 };
 
 constexpr float LOW_OUTPUT_VOLTAGE_VALUE = 0.693f;

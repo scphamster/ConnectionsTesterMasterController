@@ -140,9 +140,9 @@ class Board {
 
         return result;
     }
-    void DisableOutput(int retry_times = 0)
+    Result DisableOutput(int retry_times = 0)
     {
-        SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
+        return SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
                         retry_times);
     }
     bool StartTest(int retry_times = 0)

@@ -150,16 +150,21 @@ class Apparatus {
                                       bool                   sequential)
     {
         auto result = board->SetVoltageAtPin(pin, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
-        if (result != CommResult::Good)
+        if (result != CommResult::Good){
+            console.LogError("Setting pin voltage unsuccessful");
             return false;
+        }
 
         Task::DelayMs(ProjCfg::BoardsConfigs::DelayAfterPinVoltageSetMs);
 
         auto voltage_tables_from_all_boards = MeasureAll(sequential);
-        board->DisableOutput();
+        if (board->DisableOutput(ProjCfg::BoardsConfigs::DisableOutputRetryTimes) != CommResult::Good) {
+            console.LogError("Disable output unsuccessful");
+            return false;
+        }
 
         if (voltage_tables_from_all_boards == std::nullopt) {
-            console.LogError("Unsuccessful!");
+            console.LogError("Voltage tables not obtained!");
             return false;
         }
 
