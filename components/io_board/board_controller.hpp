@@ -52,9 +52,9 @@ class Board {
         StartTest          = 0xc6,
     };
     enum BoardAnswer {
-        OK   = 0xa5,
+        OK                    = 0xa5,
         REPEAT_CMD_TO_CONFIRM = 0xAF,
-        FAIL = 0x50
+        FAIL                  = 0x50
     };
     enum class OutputVoltage : uint8_t {
         Undefined = 0,
@@ -81,10 +81,9 @@ class Board {
         };
     };
     struct SetNewBoardAddressCmd {
-        Byte static constexpr command                  = 0xc5;
-        size_t static constexpr delayBeforeResultCheck = 500;
+        Byte static constexpr command                                  = 0xc5;
+        size_t static constexpr delayBeforeResultCheck                 = 500;
         auto constexpr static NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION = 3;
-
     };
     struct GetInternalCounter {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
@@ -114,7 +113,7 @@ class Board {
 
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
-    Result SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
+    Result                                   SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
     {
         auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) }, retry_times);
 
@@ -260,7 +259,7 @@ class Board {
 
         int number_of_confirmations_left = SetNewBoardAddressCmd::NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION;
 
-        while(number_of_confirmations_left-- > 0) {
+        while (number_of_confirmations_left-- > 0) {
             Task::DelayMs(50);
 
             auto send_result = SendCmd(SetNewBoardAddressCmd::command, new_address);
@@ -306,7 +305,6 @@ class Board {
             console.LogError("Unknown answer arrived: " + std::to_string(*answer));
             return Result::BadAnswerFormat;
         }
-
     }
 
   protected:
@@ -320,14 +318,18 @@ class Board {
             if (result == DataLink::Result::Good)
                 return Result::Good;
 
-            Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeRetryCommandSendMs);
+            if (result == DataLink::Result::BadAcknowledge)
+                Task::DelayMs(CommunicationsConfigs::waitToRepeatAfterBadAckMs);
+            else
+                Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeRetryCommandSendMs);
+
             retry_counter++;
         } while (retry_counter < retry_times);
 
         if (result == DataLink::Result::BadAcknowledge)
             return Result::BadAcknowledge;
-
-        return Result::BadCommunication;
+        else
+            return Result::BadCommunication;
     }
     Result SendCmd(Byte cmd, int retry_times = 0) noexcept { return SendCmd(cmd, CommandArgsT{}, retry_times); }
     template<typename ReturnType>
@@ -413,6 +415,9 @@ class Board {
         uint32_t someInt;
         uint32_t secondInt;
         float    someFloat;
+    };
+    struct CommunicationsConfigs {
+        auto constexpr static waitToRepeatAfterBadAckMs = 200;
     };
     DataLink                   dataLink;
     SmartLogger                console;
