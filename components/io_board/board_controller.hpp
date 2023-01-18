@@ -81,9 +81,31 @@ class Board {
         };
     };
     struct SetNewBoardAddressCmd {
-        Byte static constexpr command                                  = 0xc5;
-        size_t static constexpr delayBeforeResultCheck                 = 500;
+        auto static constexpr confirmationStagesNum = 6;
+        using CommandArgumentsT                     = std::array<Byte, confirmationStagesNum>;
+
+        Byte static constexpr command                    = 0xc5;
+        size_t static constexpr delayBeforeResultCheckMs = 150;
+
         auto constexpr static NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION = 3;
+
+        constexpr SetNewBoardAddressCmd(Byte new_address) noexcept
+          : newAddress{ new_address }
+          , commandArguments{ new_address, new_address, firstPassword, secondPassword, firstPassword, new_address }
+        { }
+
+        Byte GetArgumentForStage(int stage_number) noexcept
+        {
+            if (stage_number > confirmationStagesNum)
+                std::terminate();
+
+            return commandArguments.at(stage_number);
+        }
+        CommandArgumentsT                       GetAllArguments() noexcept { return commandArguments; }
+        Byte                                    newAddress     = 0;
+        Byte                                    firstPassword  = 153;
+        Byte                                    secondPassword = 102;
+        std::array<Byte, confirmationStagesNum> commandArguments;
     };
     struct GetInternalCounter {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
@@ -142,8 +164,9 @@ class Board {
     }
     Result DisableOutput(int retry_times = 0)
     {
-        return SetVoltageAtPin(static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
-                        retry_times);
+        return SetVoltageAtPin(
+          static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
+          retry_times);
     }
     bool StartTest(int retry_times = 0)
     {
@@ -255,22 +278,33 @@ class Board {
             throw std::invalid_argument("address value is out of range!");
         }
 
-        // todo: add check if succeeded
+        auto new_address_command = SetNewBoardAddressCmd{ new_address };
+        auto args                = new_address_command.GetAllArguments();
 
-        int number_of_confirmations_left = SetNewBoardAddressCmd::NUMBER_OF_CONFIRMATIONS_BEFORE_EXECUTION;
-
-        while (number_of_confirmations_left-- > 0) {
+        int       stage_counter     = 0;
+        const int last_argument_num = args.size() - 1;
+        for (auto const &arg : args) {
             Task::DelayMs(50);
 
-            auto send_result = SendCmd(SetNewBoardAddressCmd::command, new_address);
-            Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheck);
+            auto send_result = SendCmd(SetNewBoardAddressCmd::command, arg);
+            Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheckMs);
+
+            if (send_result != Result::Good) {
+                if (stage_counter == last_argument_num) {
+                    break;
+                }
+                else {
+                    return Result::BadCommunication;
+                }
+            }
+
             auto [read_result, answer] = dataLink.ReadBoardAnswer<Byte>();
 
             if (read_result != DataLink::Result::Good)
                 return Result::BadCommunication;
 
             if (*answer == BoardAnswer::REPEAT_CMD_TO_CONFIRM) {
-                console.Log("need to repeat to confirm");
+                stage_counter++;
                 continue;
             }
             else if (*answer == BoardAnswer::FAIL) {
@@ -284,9 +318,8 @@ class Board {
         }
 
         Task::DelayMs(50);
-        SendCmd(SetNewBoardAddressCmd::command, new_address);
         dataLink.SetNewAddress(new_address);
-        Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheck);
+        Task::DelayMs(SetNewBoardAddressCmd::delayBeforeResultCheckMs);
         auto [read_result, answer] = dataLink.ReadBoardAnswer<Byte>();
 
         if (read_result != DataLink::Result::Good) {
