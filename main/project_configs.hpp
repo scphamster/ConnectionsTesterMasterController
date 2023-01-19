@@ -24,7 +24,7 @@ enum BoardsConfigs {
     DelayBeforeCheckOfInternalCounterAfterInitializationMs = 200,
     CommandSendRetryNumber = 3,
     PinConnectionsCheckRetryCount = 5,
-    DelayBeforeAcknowledgeCheckMs = 7,
+    DelayBeforeAcknowledgeCheckMs = 1,
     DelayAfterPinVoltageSetMs = 1,
     DelayBeforeReadAllPinsVoltagesResult = 11,
     DelayBeforeRetryCommandSendMs = 50,

@@ -1,13 +1,14 @@
 #pragma once
 #include <cstdlib>
 #include <optional>
+#include <mutex>
 
 #include "data_link.hpp"
 #include "queue.hpp"
 #include "task.hpp"
 #include "semaphore.hpp"
 #include "utilities.hpp"
-
+#include "my_mutex.hpp"
 // todo: implement internal timer to not bother user about delays
 class Board {
   public:
@@ -28,6 +29,10 @@ class Board {
     auto static constexpr logicPinToPinOnBoardMapping =
       std::array<PinNumT, pinCount>{ 3,  28, 2,  29, 1, 30, 0, 31, 27, 4,  26, 5,  25, 6,  24, 7,
                                      11, 20, 10, 21, 9, 22, 8, 23, 19, 12, 18, 13, 17, 14, 16, 15 };
+
+    auto static constexpr harnessToLogicPinNumMapping =
+      std::array<PinNumT, pinCount>{ 6,  4,  2,  0,  9,  11, 13, 15, 22, 20, 18, 16, 25, 27, 29, 31,
+                                     30, 28, 26, 24, 17, 19, 21, 23, 14, 12, 10, 8,  1,  3,  5,  7 };
 
     enum class Result {
         BadCommunication,
@@ -73,6 +78,7 @@ class Board {
         TickType_t static constexpr timeToWaitForResponseAllPinsMs =
           ProjCfg::BoardsConfigs::DelayBeforeReadAllPinsVoltagesResult;
         TickType_t static constexpr timeToWaitForResponseOnePinMs = 15;
+        int static constexpr delayForSequentialRun                = timeToWaitForResponseAllPinsMs + 3;
         PinNum pin;
     };
     struct VoltageSetCmd {
@@ -111,11 +117,12 @@ class Board {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
         size_t static constexpr delayBeforeResultCheck = 100;
     };
-    Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue)
+    Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue, std::shared_ptr<Mutex> sequential_run_mutex)
       : dataLink{ board_hw_address }
       , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
       , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
+      , sequentialRunMutex{std::move(sequential_run_mutex)}
       , voltageTableCheckTask([this]() { GetAllPinsVoltagesTask(); },
                               ProjCfg::Tasks::VoltageCheckTaskStackSize,
                               ProjCfg::Tasks::VoltageCheckTaskPio,
@@ -132,7 +139,13 @@ class Board {
 
         return logicPinToPinOnBoardMapping.at(logic_pin_num);
     }
+    static PinNumT GetLogicPinNumFromHarnessPinNum(PinNumT harness_pin_num) noexcept
+    {
+        if (harness_pin_num > pinCount)
+            std::terminate();
 
+        return harnessToLogicPinNumMapping.at(harness_pin_num);
+    }
     [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     Result                                   SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
@@ -420,26 +433,34 @@ class Board {
         while (true) {
             getAllPinsVoltagesSemaphore->Take_BlockInfinitely();
 
-            auto [comm_result, voltages] = GetAllPinsVoltages();
+            {
+                sequentialRunMutex->lock();
+                auto [comm_result, voltages] = GetAllPinsVoltages();
 
-            if (comm_result != Result::Good) {
-                allPinsVoltagesTableQueue->Send(PinsVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
-                continue;
-            }
+                if (comm_result != Result::Good) {
+                    allPinsVoltagesTableQueue->Send(
+                      PinsVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
 
-            Result operation_result = Result::BoardAnsweredFail;
-            int    pin_counter      = 0;
-            for (auto const voltage : *voltages) {
-                if (voltage == UINT8_MAX) {
-                    console.LogError("voltage value at pin " + std::to_string(pin_counter) + " is clipped(maxed, =255)");
-                    operation_result = Result::UnhealthyAnswerValue;
+                    sequentialRunMutex->unlock();
+                    continue;
                 }
 
-                pin_counter++;
-            }
+                Result operation_result = Result::BoardAnsweredFail;
+                int    pin_counter      = 0;
+                for (auto const voltage : *voltages) {
+                    if (voltage == UINT8_MAX) {
+                        console.LogError("voltage value at pin " + std::to_string(pin_counter) +
+                                         " is clipped(maxed, =255)");
+                        operation_result = Result::UnhealthyAnswerValue;
+                    }
 
-            operation_result = Result::Good;
-            allPinsVoltagesTableQueue->Send(PinsVoltages{ operation_result, dataLink.GetAddress(), *voltages });
+                    pin_counter++;
+                }
+
+                operation_result = Result::Good;
+                allPinsVoltagesTableQueue->Send(PinsVoltages{ operation_result, dataLink.GetAddress(), *voltages });
+                sequentialRunMutex->unlock();
+            }
         }
     }
 
@@ -456,6 +477,7 @@ class Board {
     SmartLogger                console;
     std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
+    std::shared_ptr<Mutex>     sequentialRunMutex;
     Task                       voltageTableCheckTask;
     OutputVoltageRealT         outputVoltage = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
 };

@@ -73,13 +73,15 @@ class Apparatus {
 
         Task::DelayMs(500);
 
+        auto seq_mutex = std::make_shared<Mutex>();
+
         for (auto addr = start_address; addr <= last_address; addr++) {
             auto board_found = i2c->CheckIfSlaveWithAddressIsOnLine(addr);
             Task::DelayMs(5);
 
             if (board_found) {
                 console.Log("board with address:" + std::to_string(addr) + " was found");
-                ioBoards.emplace_back(std::make_shared<Board>(addr, pinsVoltagesResultsQ));
+                ioBoards.emplace_back(std::make_shared<Board>(addr, pinsVoltagesResultsQ, seq_mutex));
                 boardsSemaphores.push_back(ioBoards.back()->GetStartSemaphore());
             }
         }
@@ -150,7 +152,7 @@ class Apparatus {
                                       bool                   sequential)
     {
         auto result = board->SetVoltageAtPin(pin, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
-        if (result != CommResult::Good){
+        if (result != CommResult::Good) {
             console.LogError("Setting pin voltage unsuccessful");
             return false;
         }
@@ -328,7 +330,12 @@ class Apparatus {
 
         std::vector<PinsVoltages> all_boards_voltages;
 
+        for (auto const &board : ioBoards) {
+
+        }
+
         for (auto board = 0; board < ioBoards.size(); board++) {
+
             auto voltage_table = pinsVoltagesResultsQ->Receive(pdMS_TO_TICKS(ProjCfg::TimeoutMs::VoltagesQueueReceive));
 
             if (voltage_table == std::nullopt) {
@@ -366,7 +373,6 @@ class Apparatus {
         for (auto const &semaphore : boardsSemaphores) {
             semaphore->Give();
             if (sequential) {
-                Task::DelayMs(Board::VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
             }
         }
     }
@@ -527,7 +533,10 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::SimpleBoolean, true);
+                    FindConnectionsAtBoardForPin(args.at(0),
+                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 ConnectionAnalysis::SimpleBoolean,
+                                                 true);
                 }
             } break;
             case UserCommand::CheckVoltages: {
@@ -536,7 +545,10 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::Voltage, true);
+                    FindConnectionsAtBoardForPin(args.at(0),
+                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 ConnectionAnalysis::Voltage,
+                                                 true);
                 }
             } break;
             case UserCommand::CheckResistances: {
@@ -545,7 +557,10 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0), args.at(1), ConnectionAnalysis::Resistance, true);
+                    FindConnectionsAtBoardForPin(args.at(0),
+                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 ConnectionAnalysis::Resistance,
+                                                 true);
                 }
             } break;
             case UserCommand::EnableOutputForPin: {
