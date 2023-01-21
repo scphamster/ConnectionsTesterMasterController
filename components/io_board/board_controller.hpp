@@ -117,12 +117,17 @@ class Board {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
         size_t static constexpr delayBeforeResultCheck = 100;
     };
+    struct GetFirmwareVersion {
+        Byte static constexpr cmd                = 0xc7;
+        Byte static constexpr targetVersion      = 17;
+        auto static constexpr delayForResponseMs = 2;
+    };
     Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue, std::shared_ptr<Mutex> sequential_run_mutex)
       : dataLink{ board_hw_address }
       , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
       , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
-      , sequentialRunMutex{std::move(sequential_run_mutex)}
+      , sequentialRunMutex{ std::move(sequential_run_mutex) }
       , voltageTableCheckTask([this]() { GetAllPinsVoltagesTask(); },
                               ProjCfg::Tasks::VoltageCheckTaskStackSize,
                               ProjCfg::Tasks::VoltageCheckTaskPio,
@@ -175,13 +180,13 @@ class Board {
 
         return result;
     }
-    Result DisableOutput(int retry_times = 0)
+    Result DisableOutput(int retry_times = 0) noexcept
     {
         return SetVoltageAtPin(
           static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
           retry_times);
     }
-    bool StartTest(int retry_times = 0)
+    bool StartTest(int retry_times = 0) noexcept
     {
         auto result = SendCmd(ToUnderlying(Command::StartTest), retry_times);
         if (result != Result::Good) {
@@ -190,14 +195,27 @@ class Board {
 
         return false;
     }
+    std::pair<Result, std::optional<bool>> CheckIfFirmwareVersionIsCompliant(int retry_times = 0) noexcept
+    {
+        auto res =
+          SendCmdAndReadResponse<Byte>(GetFirmwareVersion::cmd, GetFirmwareVersion::delayForResponseMs, retry_times);
 
-    VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value)
+        if (res.first == Result::Good){
+            if (res.second == GetFirmwareVersion::targetVersion)
+                return {res.first, true};
+            else
+                return {res.first, false};
+        }
+        else return {res.first, std::nullopt};
+    }
+
+    static VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value) noexcept
     {
         VoltageT constexpr reference = 1.1;
 
         return (static_cast<VoltageT>(adc_value) / 1024) * reference;
     }
-    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value)
+    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value) noexcept
     {
         CircuitParamT constexpr output_resistance = 210;
         CircuitParamT constexpr input_resistance  = 1100;
@@ -257,33 +275,6 @@ class Board {
         }
 
         return { comm_result, voltages };
-    }
-    std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
-    {
-        auto response = dataLink.UnitTestCommunication(data);
-
-        if (not response)
-            return std::nullopt;
-
-        if (data != *response) {
-            console.LogError("slave answer is different from original data: ");
-
-            auto counter = 0;
-
-            for (auto const value : data) {
-                console.LogError("orig: " + std::to_string(value) +
-                                 " || response: " + std::to_string(response->at(counter)));
-
-                counter++;
-            }
-
-            return std::nullopt;
-        }
-        else {
-            console.Log("slave responded successfully");
-        }
-
-        return response;
     }
     Result SetNewBoardAddress(AddressT new_address)
     {
@@ -351,6 +342,34 @@ class Board {
             console.LogError("Unknown answer arrived: " + std::to_string(*answer));
             return Result::BadAnswerFormat;
         }
+    }
+
+    std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
+    {
+        auto response = dataLink.UnitTestCommunication(data);
+
+        if (not response)
+            return std::nullopt;
+
+        if (data != *response) {
+            console.LogError("slave answer is different from original data: ");
+
+            auto counter = 0;
+
+            for (auto const value : data) {
+                console.LogError("orig: " + std::to_string(value) +
+                                 " || response: " + std::to_string(response->at(counter)));
+
+                counter++;
+            }
+
+            return std::nullopt;
+        }
+        else {
+            console.Log("slave responded successfully");
+        }
+
+        return response;
     }
 
   protected:

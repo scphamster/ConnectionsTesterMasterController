@@ -92,10 +92,32 @@ class Apparatus {
 
         Task::DelayMs(ProjCfg::BoardsConfigs::DelayBeforeCheckOfInternalCounterAfterInitializationMs);
 
+        int board_counter = 0;
         for (auto const &board : ioBoards) {
             auto [comm_result, counter_value] =
               board->GetBoardCounterValue(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
             board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+
+            auto result = board->CheckIfFirmwareVersionIsCompliant(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            if (result.first == CommResult::BadCommunication) {
+                console.LogError("Board with address " + std::to_string(board->GetAddress()) +
+                                 " has problems with communication!");
+                ioBoards.erase(ioBoards.begin() + board_counter);
+            }
+            else if (result.first == CommResult::Good) {
+                if (result.second == false) {
+                    console.LogError("Board with address " + std::to_string(board->GetAddress()) +
+                                     " has not compliant firmware version!");
+
+                    ioBoards.erase(ioBoards.begin() + board_counter);
+                }
+            }
+            else if (result.first == CommResult::BadAcknowledge) {
+                console.LogError("Board with address " + std::to_string(board->GetAddress()) +
+                                 " has no implemented GetFirmwareAddress command");
+            }
+
+            board_counter++;
         }
     }
     void SendAllBoardsIds() noexcept
@@ -217,10 +239,8 @@ class Apparatus {
                                                 ") ");
                     }
                     else if (analysis_type == ConnectionAnalysis::Voltage) {
-                        answer_to_master.append(
-                          board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
-                          StringParser::ConvertFpValueWithPrecision(board->CalculateVoltageFromAdcValue(voltage), 2) +
-                          ") ");
+                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
+                                                StringParser::ConvertFpValueWithPrecision(voltage, 2) + ") ");
                     }
                 }
 
@@ -330,12 +350,9 @@ class Apparatus {
 
         std::vector<PinsVoltages> all_boards_voltages;
 
-        for (auto const &board : ioBoards) {
-
-        }
+        for (auto const &board : ioBoards) { }
 
         for (auto board = 0; board < ioBoards.size(); board++) {
-
             auto voltage_table = pinsVoltagesResultsQ->Receive(pdMS_TO_TICKS(ProjCfg::TimeoutMs::VoltagesQueueReceive));
 
             if (voltage_table == std::nullopt) {
@@ -372,8 +389,6 @@ class Apparatus {
     {
         for (auto const &semaphore : boardsSemaphores) {
             semaphore->Give();
-            if (sequential) {
-            }
         }
     }
 
