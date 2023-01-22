@@ -56,7 +56,7 @@ class Board {
         SetOutputVoltage   = 0xc4,
         StartTest          = 0xc6,
     };
-    enum BoardAnswer {
+    enum BoardAnswer : Byte {
         OK                    = 0xa5,
         REPEAT_CMD_TO_CONFIRM = 0xAF,
         FAIL                  = 0x50
@@ -80,6 +80,7 @@ class Board {
         TickType_t static constexpr timeToWaitForResponseOnePinMs = 15;
         int static constexpr delayForSequentialRun                = timeToWaitForResponseAllPinsMs + 3;
         PinNum pin;
+        Byte static constexpr rawHealthyVoltageValueIsBelow = 220;
     };
     struct VoltageSetCmd {
         enum class Special {
@@ -119,12 +120,33 @@ class Board {
     };
     struct GetFirmwareVersion {
         Byte static constexpr cmd                = 0xc7;
-        Byte static constexpr targetVersion      = 17;
+        Byte static constexpr targetVersion      = 19;
         auto static constexpr delayForResponseMs = 2;
+    };
+    struct SetInternalParametersCmd {
+        Byte static constexpr cmd                = 0xC8;
+        auto static constexpr numberOfParams     = 7;
+        auto static constexpr delayForResponseMs = 100;
+        using InternalParamT                     = uint16_t;
+        using InternalParamsT                    = std::array<InternalParamT, numberOfParams>;
+    };
+    struct GetInternalParametersCmd {
+        Byte static constexpr cmd                = 0xc9;
+        auto static constexpr delayForResponseMs = 200;
+
+        struct InternalParamsT {
+            SetInternalParametersCmd::InternalParamT outputResistance1;
+            SetInternalParametersCmd::InternalParamT inputResistance1;
+            SetInternalParametersCmd::InternalParamT outputResistance2;
+            SetInternalParametersCmd::InternalParamT inputResistance2;
+            SetInternalParametersCmd::InternalParamT shuntResistance;
+            SetInternalParametersCmd::InternalParamT outputVoltageLow;
+            SetInternalParametersCmd::InternalParamT outputVoltageHigh;
+        };
     };
     Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue, std::shared_ptr<Mutex> sequential_run_mutex)
       : dataLink{ board_hw_address }
-      , console{ "IOBoard, addr " + std::to_string(board_hw_address) + ':', ProjCfg::EnableLogForComponent::IOBoards }
+      , console{ "IOBoard:" + std::to_string(board_hw_address) + "::", ProjCfg::EnableLogForComponent::IOBoards }
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
       , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
       , sequentialRunMutex{ std::move(sequential_run_mutex) }
@@ -200,15 +222,84 @@ class Board {
         auto res =
           SendCmdAndReadResponse<Byte>(GetFirmwareVersion::cmd, GetFirmwareVersion::delayForResponseMs, retry_times);
 
-        if (res.first == Result::Good){
+        if (res.first == Result::Good) {
             if (res.second == GetFirmwareVersion::targetVersion)
-                return {res.first, true};
+                return { res.first, true };
             else
-                return {res.first, false};
+                return { res.first, false };
         }
-        else return {res.first, std::nullopt};
+        else
+            return { res.first, std::nullopt };
     }
+    Result SetInternalParameters(SetInternalParametersCmd::InternalParamsT params, int retry_times = 0) noexcept
+    {
+        auto buffer = reinterpret_cast<std::array<Byte, sizeof(params)> *>(&params);
 
+        for (auto const byte : *buffer) {
+            auto send_result = SendCmdAndReadResponse<BoardAnswer>(SetInternalParametersCmd::cmd,
+                                                                   byte,
+                                                                   SetInternalParametersCmd::delayForResponseMs,
+                                                                   retry_times);
+
+            if (send_result.first != Result::Good)
+                return send_result.first;
+            if (*send_result.second != BoardAnswer::REPEAT_CMD_TO_CONFIRM) {
+                console.LogError("SetInternalParams::board did not sent REPEAT CMD TO CONFIRM, sent: " +
+                                 std::to_string(ToUnderlying(*send_result.second)));
+                return Result::UnhealthyAnswerValue;
+            }
+        }
+
+        auto last_send_result = SendCmd(SetInternalParametersCmd::cmd);
+        if (last_send_result != Result::Good) {
+            console.LogError("SetInternalParameters::last send unsuccessful");
+        }
+
+        Task::DelayMs(SetInternalParametersCmd::delayForResponseMs);
+
+        auto read_result = ReadResponse<BoardAnswer>(retry_times);
+        if (read_result.first != Result::Good) {
+            console.LogError("SetInternalParameters::last read unsuccessful!");
+            return read_result.first;
+        }
+
+        if (*read_result.second != BoardAnswer::OK) {
+            console.LogError("SetInternalParameters::Last send board answer is not OK: " +
+                             std::to_string(ToUnderlying(*read_result.second)));
+            return Result::UnhealthyAnswerValue;
+        }
+
+        return Result::Good;
+    }
+    std::pair<Result, std::optional<GetInternalParametersCmd::InternalParamsT>> GetInternalParameters(
+      int retry_times = 0) noexcept
+    {
+        auto send_result = SendCmd(GetInternalParametersCmd::cmd);
+
+        if (send_result != Result::Good) {
+            console.LogError("GetInternals::send result is not good!");
+        }
+
+        Task::DelayMs(GetInternalParametersCmd::delayForResponseMs);
+
+        auto read_result = ReadResponse<std::array<uint16_t, SetInternalParametersCmd::numberOfParams>>();
+
+        if (read_result.first != Result::Good) {
+            console.LogError("GetInternalParams::bad read:" + std::to_string(ToUnderlying(read_result.first)));
+            return { read_result.first, std::nullopt };
+        }
+
+        GetInternalParametersCmd::InternalParamsT retval;
+        retval.inputResistance1  = read_result.second->at(0);
+        retval.outputResistance1 = read_result.second->at(1);
+        retval.inputResistance2  = read_result.second->at(2);
+        retval.outputResistance2 = read_result.second->at(3);
+        retval.shuntResistance = read_result.second->at(4);
+        retval.outputVoltageLow  = read_result.second->at(5);
+        retval.outputVoltageHigh  = read_result.second->at(6);
+
+        return { read_result.first, retval };
+    }
     static VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value) noexcept
     {
         VoltageT constexpr reference = 1.1;
@@ -464,16 +555,28 @@ class Board {
                     continue;
                 }
 
-                Result operation_result = Result::BoardAnsweredFail;
+                Result operation_result = Result::Good;
                 int    pin_counter      = 0;
                 for (auto const voltage : *voltages) {
                     if (voltage == UINT8_MAX) {
                         console.LogError("voltage value at pin " + std::to_string(pin_counter) +
                                          " is clipped(maxed, =255)");
                         operation_result = Result::UnhealthyAnswerValue;
+                        break;
+                    }
+
+                    if (voltage > VoltageCheckCmd::rawHealthyVoltageValueIsBelow) {
+                        console.LogError("voltage level is suspiciously high:" + std::to_string(voltage));
+                        operation_result = Result::UnhealthyAnswerValue;
+                        break;
                     }
 
                     pin_counter++;
+                }
+
+                if (operation_result != Result::Good) {
+                    sequentialRunMutex->unlock();
+                    continue;
                 }
 
                 operation_result = Result::Good;

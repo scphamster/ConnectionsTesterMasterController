@@ -50,7 +50,8 @@ class Apparatus {
     enum class ConnectionAnalysis {
         SimpleBoolean,
         Voltage,
-        Resistance
+        Resistance,
+        Raw
     };
     struct SetPinVoltageCmd {
         enum SpecialPinConfigurations : Byte {
@@ -133,25 +134,21 @@ class Apparatus {
         bluetooth->Write(response);
         console.Log("response sent: " + response);
     }
-    void EnableOutputForPin(PinNumT pin) noexcept
+    void EnableOutputForPin(BoardAddrT board_addr, PinNumT pin) noexcept
     {
-        // todo: replace magic numbers
-        auto board_num    = pin / 32;
-        auto pin_at_board = pin % 32;
-
-        if (board_num + 1 > ioBoards.size()) {
-            std::string err_msg = "requested pin number: " + std::to_string(pin) +
-                                  " which requires board number (count from 1) = " + std::to_string(board_num + 1) +
-                                  " but there are only " + std::to_string(ioBoards.size()) + " boards found\n";
-
-            console.LogError(err_msg);
-            bluetooth->Write(err_msg);
-
+        auto board = FindBoardWithAddress(board_addr);
+        if (board == std::nullopt) {
+            console.LogError("board with addr:" + std::to_string(board_addr) + " not found");
             return;
         }
 
-        // todo: use new_level variable
-        ioBoards.at(board_num)->SetVoltageAtPin(pin_at_board);
+        auto result = (*board)->SetVoltageAtPin(pin);
+        if (result == CommResult::Good) {
+            console.Log("Voltage at pin: " + std::to_string(pin) + " was set");
+        }
+        else {
+            console.LogError("Voltage at pin: " + std::to_string(pin) + " failed to set");
+        }
     }
     void SetOutputVoltageValue(OutputVoltageLevel level) noexcept
     {
@@ -194,15 +191,10 @@ class Apparatus {
 
         std::string response_header;
         switch (analysis_type) {
-        case ConnectionAnalysis::SimpleBoolean: {
-            response_header = "CONNECT";
-        } break;
-        case ConnectionAnalysis::Voltage: {
-            response_header = "VOLTAGES";
-        } break;
-        case ConnectionAnalysis::Resistance: {
-            response_header = "RESISTANCES";
-        } break;
+        case ConnectionAnalysis::SimpleBoolean: response_header = "CONNECT"; break;
+        case ConnectionAnalysis::Voltage: response_header = "VOLTAGES"; break;
+        case ConnectionAnalysis::Resistance: response_header = "RESISTANCES"; break;
+        case ConnectionAnalysis::Raw: response_header = "CONN_RAW"; break;
         default: {
             console.LogError("Bad analysis type for find connections command: " +
                              std::to_string(static_cast<int>(analysis_type)));
@@ -241,6 +233,10 @@ class Apparatus {
                     else if (analysis_type == ConnectionAnalysis::Voltage) {
                         answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
                                                 StringParser::ConvertFpValueWithPrecision(voltage, 2) + ") ");
+                    }
+                    else if (analysis_type == ConnectionAnalysis::Raw) {
+                        answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
+                                                std::to_string(voltage) + ") ");
                     }
                 }
 
@@ -370,7 +366,30 @@ class Apparatus {
 
         return all_boards_voltages;
     }
+    void GetInternalParametersForBoard(BoardAddrT board_addr) noexcept
+    {
+        auto board = FindBoardWithAddress(board_addr);
+        if (!board) {
+            console.LogError("requested board with addr:" + std::to_string(board_addr) + " does not exist!");
+            bluetooth->Write("bad board addr!");
+            return;
+        }
 
+        auto result = (*board)->GetInternalParameters(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        if (result.first != CommResult::Good)
+            return;
+
+        std::string answer = "INTERNALS " + std::to_string(board_addr) + " -> ";
+        answer.append(std::to_string(result.second->inputResistance1) + ' ');
+        answer.append(std::to_string(result.second->outputResistance1) + ' ');
+        answer.append(std::to_string(result.second->inputResistance2) + ' ');
+        answer.append(std::to_string(result.second->outputResistance2) + ' ');
+        answer.append(std::to_string(result.second->shuntResistance) + ' ');
+        answer.append(std::to_string(result.second->outputVoltageLow) + ' ');
+        answer.append(std::to_string(result.second->outputVoltageHigh) + " END\n");
+        bluetooth->Write(answer);
+        console.Log(answer);
+    }
     // helpers
     std::optional<std::shared_ptr<Board>> FindBoardWithAddress(BoardAddrT board_address) noexcept
     {
@@ -578,8 +597,20 @@ class Apparatus {
                                                  true);
                 }
             } break;
+            case UserCommand::CheckRaw: {
+                if (args.size() == 0)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, false);
+                else if (args.size() == 1)
+                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true);
+                else {
+                    FindConnectionsAtBoardForPin(args.at(0),
+                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 ConnectionAnalysis::Raw,
+                                                 true);
+                }
+            } break;
             case UserCommand::EnableOutputForPin: {
-                EnableOutputForPin(args.at(0));
+                EnableOutputForPin(args.at(0), args.at(1));
             } break;
             case UserCommand::GetAllBoardsIds: {
                 FindAllConnectedBoards();
@@ -639,6 +670,26 @@ class Apparatus {
 
                 break;
 
+            case UserCommand::SetInternalParameters:
+                if (ioBoards.size() != 1) {
+                    bluetooth->Write(
+                      "Boards count is not 1! Can change internal parameters with only 1 board connected!\n");
+                    console.LogError("Boards count is not 1!");
+                }
+                else {
+                    using InternalParamT = Board::SetInternalParametersCmd::InternalParamT;
+                    auto internals_args  = std::array<InternalParamT, Board::SetInternalParametersCmd::numberOfParams>{
+                        static_cast<InternalParamT>(args.at(0)), static_cast<InternalParamT>(args.at(1)),
+                        static_cast<InternalParamT>(args.at(2)), static_cast<InternalParamT>(args.at(3)),
+                        static_cast<InternalParamT>(args.at(4)), static_cast<InternalParamT>(args.at(5)),
+                        static_cast<InternalParamT>(args.at(6))
+                    };
+
+                    ioBoards.at(0)->SetInternalParameters(internals_args, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+                }
+                break;
+
+            case UserCommand::GetInternalParameters: GetInternalParametersForBoard(args.at(0)); break;
             default: break;
             }
         }

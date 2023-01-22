@@ -45,10 +45,10 @@ enum Tasks {
 enum class EnableLogForComponent : bool {
     IIC      = false,
     IOBoards = false,
-    Main     = false,
+    Main     = true,
     BluetoothSPP = false,
     BluettothMain = false,
-    CommandInterpreter = false
+    CommandInterpreter = true
 };
 enum Log {
     LogAllErrors=true

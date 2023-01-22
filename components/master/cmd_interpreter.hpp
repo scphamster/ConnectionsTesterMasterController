@@ -16,20 +16,26 @@ class CommandInterpreter {
         CheckConnections,
         CheckResistances,
         CheckVoltages,
+        CheckRaw,
         GetAllBoardsIds,
         GetInternalCounter,
         GetTaskStackWatermark,
         SetNewAddressForBoard,
+        SetInternalParameters,
+        GetInternalParameters,
         Test,
         Unknown
     };
+    using StdRetType  = std::pair<UserCommand, std::vector<int>>;
+    using StdCmdArgsT = std::vector<std::string>;
+    using Byte = uint8_t;
 
     CommandInterpreter(std::shared_ptr<MasterMsgQueueT> master_msg_queue)
       : console{ "interpreter", ProjCfg::EnableLogForComponent::CommandInterpreter }
       , fromUserInputQ{ std::move(master_msg_queue) }
     { }
 
-    std::pair<UserCommand, std::vector<int>> WaitForCommand() noexcept
+    StdRetType WaitForCommand() noexcept
     {
         while (true) {
             std::string cmd;
@@ -46,35 +52,54 @@ class CommandInterpreter {
             }
             console.Log("Command arrived: " + cmd);
 
-            auto words = StringParser::GetWords(cmd);
+            auto words      = StringParser::GetWords(cmd);
+            auto first_word = words.at(0);
             if (words.at(0) == "set") {
-                int argument{ -1 };
+                int board{ -1 };
 
                 try {
-                    argument = std::stoi(words.at(1));
+                    board = std::stoi(words.at(1));
                 } catch (...) {
                     dataLink->Write("invalid argument: " + words.at(1) + ". Example usage: set 14");
+                    return {UserCommand::Unknown, std::vector<int>()};
                 }
 
-                return { UserCommand::EnableOutputForPin, std::vector{ argument } };
+                int pin;
+
+                try{
+                    pin = std::stoi(words.at(2));
+                }
+                catch(...)
+                {
+                    dataLink->Write("second argument should be integer of pin number value");
+                    return {UserCommand::Unknown, std::vector<int>()};
+                }
+
+                return { UserCommand::EnableOutputForPin, std::vector{ board, pin } };
             }
-            else if (words.at(0) == "voltage") {
+            else if (first_word == "setinternals") {
+                return ParseSetInternalParametersCmd(std::move(words));
+            }
+            else if (first_word == "voltage") {
                 if (words.at(1) == "high")
                     return { UserCommand::SetOutputVoltageLevel, std::vector{ 2 } };
                 else if (words.at(1) == "low")
                     return { UserCommand::SetOutputVoltageLevel, std::vector{ 1 } };
                 else {
-                    dataLink->Write("invalid argument for command: " + words.at(0) + ". Respected arguments: low, high");
+                    dataLink->Write("invalid argument for command: " + first_word + ". Respected arguments: low, high");
                     return { UserCommand::Unknown, std::vector<int>() };
                 }
             }
-            else if (words.at(0) == "check") {
+            else if (first_word == "check") {
                 return ParseCheckConnectionsCmd(words);
             }
-            else if (words.at(0) == "getboards") {
+            else if (first_word == "getboards") {
                 return { UserCommand::GetAllBoardsIds, std::vector{ 0 } };
             }
-            else if (words.at(0) == "counter") {
+            else if (first_word == "getinternals") {
+                return ParseGetInternalParametersCmd(std::move(words));
+            }
+            else if (first_word == "counter") {
                 if (words.size() == 0) {
                     console.LogError("No board address argument provided for command: 'counter'");
                     continue;
@@ -90,10 +115,10 @@ class CommandInterpreter {
 
                 return { UserCommand::GetInternalCounter, std::vector{ board_addr } };
             }
-            else if (words.at(0) == "stack") {
+            else if (first_word == "stack") {
                 return { UserCommand::GetTaskStackWatermark, std::vector<int>() };
             }
-            else if (words.at(0) == "newaddress") {
+            else if (first_word == "newaddress") {
                 int new_addr = -1;
                 try {
                     new_addr = std::stoi(words.at(1));
@@ -120,7 +145,7 @@ class CommandInterpreter {
 
                 return { user_command, std::vector{ current_address, new_addr } };
             }
-            else if (words.at(0) == "test") {
+            else if (first_word == "test") {
                 return { UserCommand::Test, std::vector<int>() };
             }
 
@@ -129,7 +154,7 @@ class CommandInterpreter {
     }
 
   protected:
-    std::pair<UserCommand, std::vector<int>> ParseCheckConnectionsCmd(std::vector<std::string> words)
+    StdRetType ParseCheckConnectionsCmd(std::vector<std::string> words) noexcept
     {
         if (words.size() >= 2) {
             auto second_word  = words.at(1);
@@ -141,6 +166,8 @@ class CommandInterpreter {
                 user_command = UserCommand::CheckResistances;
             else if (second_word == "voltages")
                 user_command = UserCommand::CheckVoltages;
+            else if(second_word == "raw")
+                user_command = UserCommand::CheckRaw;
             else {
                 console.LogError("Unknown command: " + second_word);
                 return { UserCommand::Unknown, std::vector<int>() };
@@ -190,6 +217,53 @@ class CommandInterpreter {
         else {
             return { UserCommand::Unknown, std::vector<int>() };
         }
+    }
+    StdRetType ParseSetInternalParametersCmd(StdCmdArgsT words) noexcept
+    {
+        if (words.size() != Board::SetInternalParametersCmd::numberOfParams + 1) {
+            console.LogError("Set internals command Fail: bad args count: " + std::to_string(words.size()));
+            return { UserCommand::Unknown, std::vector<int>() };
+        }
+
+        std::vector<int> args;
+
+        std::for_each(words.begin() + 1, words.end(), [this, &args](auto const &word) {
+            try {
+                auto value = std::stoi(word);
+                args.push_back(value);
+            } catch (...) {
+                console.LogError("SetInternalParams fail: argument is not number!:" + word);
+            }
+        });
+
+        if (args.size() != Board::SetInternalParametersCmd::numberOfParams) {
+            return { UserCommand::Unknown, std::vector<int>() };
+        }
+        else
+            return { UserCommand::SetInternalParameters, args };
+    }
+    StdRetType ParseGetInternalParametersCmd(StdCmdArgsT words) noexcept
+    {
+        console.Log("GetInternalsCommand:" + words.at(1));
+
+        if (words.size() != 2){
+            console.LogError("GetInternalParameters command args num != 2:" + std::to_string(words.size()));
+            return { UserCommand::Unknown, std::vector<int>() };
+        }
+
+        Byte board_addr;
+        try {
+            board_addr = std::stoi(words.at(1));
+        }
+        catch(...)
+        {
+            console.LogError("GetInternalParameters command with argument not integer! : " + words.at(1));
+            return { UserCommand::Unknown, std::vector<int>() };
+        }
+
+        console.Log("GetInternals is for board with addr:" + std::to_string(board_addr));
+
+        return { UserCommand::GetInternalParameters, std::vector<int>{board_addr} };
     }
 
   private:
