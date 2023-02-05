@@ -74,17 +74,17 @@ class BluetoothGAP {
     {
         auto logger = EspLogger::Get();
 
-        auto event = static_cast<Event>(_event);
-
+        auto event      = static_cast<Event>(_event);
+        auto static TAG = "GAP";
         switch (event) {
-        case Event::DiscoveryCompleted: logger->Log("Discovery event! device name: _*NOT IMPLEMENTED*_"); break;
+        case Event::DiscoveryCompleted: logger->Log(TAG, "Discovered: device name: _*NOT IMPLEMENTED*_"); break;
         case Event::AuthenticationCompleted: {
             if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-                logger->Log("Authentication success, paired with device named:" +
+                logger->Log(TAG, "Authentication success, paired with device named:" +
                             std::string{ reinterpret_cast<char *>(param->auth_cmpl.device_name) });
             }
             else {
-                logger->LogError("Authentication failed, status:" + std::to_string(param->auth_cmpl.stat));
+                logger->LogError(TAG, "Authentication failed, status:" + std::to_string(param->auth_cmpl.stat));
             }
             break;
         }
@@ -109,22 +109,22 @@ class BluetoothGAP {
 
 #if (CONFIG_BT_SSP_ENABLED == true)
         case Event::SSPUserConfirmationRequest:
-            logger->Log("GAP: User confirmation request, please compare numeric value:" +
+            logger->Log(TAG, "GAP: User confirmation request, please compare numeric value:" +
                         std::to_string(param->cfm_req.num_val));
             esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
             break;
 
         case Event::SSPPasskeyNotification:
-            logger->Log("GAP: Passkey notification event! Passkey:" + std::to_string(param->key_notif.passkey));
+            logger->Log(TAG, "GAP: Passkey notification event! Passkey:" + std::to_string(param->key_notif.passkey));
             break;
 
-        case Event::SSPPasskeyRequest: logger->Log("GAP: Passkey request, please enter key"); break;
+        case Event::SSPPasskeyRequest: logger->Log(TAG, "GAP: Passkey request, please enter key"); break;
 #endif
         case Event::ModeChange:
-            logger->Log("GAP: Mode Change event! New mode:" + std::to_string(param->mode_chg.mode));
+            logger->Log(TAG, "GAP: Mode Change event! New mode:" + std::to_string(param->mode_chg.mode));
             break;
 
-        default: logger->Log("GAP: Unhandled event:" + std::to_string(_event));
+        default: logger->Log(TAG, "GAP: Unhandled event:" + std::to_string(_event));
         }
     }
     void static ConfigureSecurity() noexcept
@@ -165,8 +165,10 @@ class BluetoothGAP {
 
     bool RegisterGAPCallback() noexcept
     {
+        auto static TAG = "GAP";
+
         if (esp_bt_gap_register_callback(GAPCallback) != ESP_OK) {
-            EspLogger::Get()->LogError("GAP callback register failed");
+            EspLogger::Get()->LogError(TAG, "GAP callback register failed");
 
             InitializationFailedCallback();
             return false;

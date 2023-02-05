@@ -14,6 +14,7 @@
 #include "string_parser.hpp"
 #include "gpio.hpp"
 #include "master/cmd_interpreter.hpp"
+#include "communicator.hpp"
 
 class Apparatus {
   public:
@@ -30,16 +31,17 @@ class Apparatus {
     using CommandCatcher     = CommandInterpreter<Bluetooth>;
     using UserCommand        = typename CommandCatcher::UserCommand;
 
-    void static Create(std::shared_ptr<Queue<char>> input_queue) noexcept
+    void static Create(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<Communicator> socket) noexcept
     {
-        _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue) } };
+        _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue), std::move(socket) } };
     }
     auto static Get() noexcept
     {
         auto console = EspLogger::Get();
 
         if (_this == nullptr) {
-            console->LogError("Apparatus was not created yet, invoke Apparatus::Create before trying to Get instance");
+            console->LogError("MainApparatus",
+                              "Apparatus was not created yet, invoke Apparatus::Create before trying to Get instance");
             std::terminate();
         }
 
@@ -696,10 +698,11 @@ class Apparatus {
     }
 
   private:
-    Apparatus(std::shared_ptr<Queue<char>> input_queue)
+    Apparatus(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<Communicator> new_socket)
       : console{ "Main", ProjCfg::EnableLogForComponent::Main }
       , pinsVoltagesResultsQ{ std::make_shared<QueueT>(10) }
       , commandCatcher{ std::move(input_queue) }
+      , socket{ std::move(new_socket) }
       , bluetooth{ Bluetooth::Get() }
       , measurementsTask{ [this]() { CommandDirectorTask(); },
                           static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskStackSize),
@@ -727,7 +730,8 @@ class Apparatus {
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
-    CommandCatcher commandCatcher;
+    CommandCatcher                commandCatcher;
+    std::shared_ptr<Communicator> socket;
 
     Pin testPin{ 26, Pin::Direction::Output };
 

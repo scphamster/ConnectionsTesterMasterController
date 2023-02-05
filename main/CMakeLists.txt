@@ -19,6 +19,7 @@ set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
 set(CXX_SOURCES
     main.cpp
     project_configs.hpp
+    project_executor.hpp
 
     ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.cpp
@@ -61,6 +62,8 @@ set(CXX_SOURCES
     ${COMPONENTS_DIR}/tools/utilities.hpp
 
     ${COMPONENTS_DIR}/master/cmd_interpreter.hpp
+
+    ${COMPONENTS_DIR}/cpp_wrappers/wifi.hpp
     )
 
 set(C_SOURCES

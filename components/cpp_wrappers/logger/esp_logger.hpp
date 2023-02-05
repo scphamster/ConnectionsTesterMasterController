@@ -22,15 +22,13 @@ class EspLogger {
 
     void static Init() { _this = std::shared_ptr<EspLogger>{ new EspLogger{} }; }
 
-    void Log(std::string msg) const noexcept
+    static void Log(std::string tag, std::string msg)  noexcept
     {
-        std::lock_guard<Mutex>{ writeMutex };
-        ESP_LOGI("", "%s", msg.c_str());
+        ESP_LOGI(tag.c_str(), "%s", msg.c_str());
     }
-    void LogError(std::string msg) const noexcept
+    static void LogError(std::string tag, std::string msg) noexcept
     {
-        std::lock_guard<Mutex>{ writeMutex };
-        ESP_LOGE("", "%s", msg.c_str());
+        ESP_LOGE(tag.c_str(), "%s", msg.c_str());
     }
 
   protected:
@@ -52,12 +50,12 @@ class SmartLogger {
     void LogError(std::string text) noexcept
     {
         if (isEnabled or ProjCfg::Log::LogAllErrors)
-            console->LogError(tag + ": " + text);
+            console->LogError(tag, text);
     }
-    void Log(std::string text) noexcept
+    void Log(std::string text) const noexcept
     {
         if (isEnabled)
-            console->Log(tag + ": " + text);
+            console->Log(tag, text);
     }
     void SetNewTag(std::string new_tag) noexcept { tag = new_tag; }
 
