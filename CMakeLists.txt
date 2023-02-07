@@ -14,6 +14,9 @@ set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/common_components/protocol_exam
 #set(ENV{PATH} "$ENV{IDF_DUPA} $ENV{PATH}")
 #message("mydebug: PATH is " $ENV{PATH})
 
+set(CXX_COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast -fexceptions")
+set(C_COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")
+
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(panels_tester LANGUAGES C CXX)

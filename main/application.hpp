@@ -1,29 +1,20 @@
 #pragma once
 #include <memory>
+
 #include "task.hpp"
 #include "reset_reason_notifier.hpp"
+#include "esp_logger.hpp"
+
 
 class Application {
   public:
-    static void                         Create() noexcept { _this = std::shared_ptr<Application>(new Application()); }
-    static std::shared_ptr<Application> Get() noexcept
-    {
-        if (not _this) {
-            EspLogger::LogError("Application",
-                                "Application was not created yet, invoke \"Create\" before trying to get instance");
+    using IPv4 = uint32_t;
 
-            Task::DelayMs(2000);
-            std::terminate();
-        }
-        return _this;
-    }
+    static void Run() noexcept { _this = std::shared_ptr<Application>(new Application()); }
 
   protected:
-    [[noreturn]] void MainTask() noexcept
+    void Initialize() noexcept
     {
-        ResetReasonNotifier rrNotifier{};
-        rrNotifier.Notify();
-
         esp_err_t ret = nvs_flash_init();
         if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
             ESP_ERROR_CHECK(nvs_flash_erase());
@@ -32,25 +23,40 @@ class Application {
         ESP_ERROR_CHECK(ret);
         esp_netif_init();
         ESP_ERROR_CHECK(esp_event_loop_create_default());
+
         auto connection_result = example_connect();
         if (connection_result != ESP_OK) {
             ESP_LOGE("MAIN", "No WIFI Connection obtained! Restarting!");
             vTaskDelay(pdMS_TO_TICKS(2000));
             std::terminate();
         }
+    }
 
+    void ConnectWireless() noexcept
+    {
         tcpip_adapter_ip_info_t ip_info;
         esp_err_t               err = tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip_info);
-        if (err == ESP_OK) {
-            printf("AP IP: %s\n", ip4addr_ntoa(&ip_info.gw));
-        }
-        else {
-            printf("Failed to get AP IP\n");
+        if (err != ESP_OK) {
+            console.OnFatalErrorTermination("TCPIP Adapter: Failed to get ip info. Error: " +
+                                            std::string(esp_err_to_name(err)));
         }
 
-        auto write_queue = std::make_shared<Queue<Message>>(10);
+        masterIP = asio::ip::address_v4(ip_info.gw.addr);
+        console.Log("Master's IP: " + masterIP.to_string());
+    }
+
+    [[noreturn]] void MainTask() noexcept
+    {
+        ResetReasonNotifier rrNotifier{};
+        rrNotifier.Notify();
+
+        Initialize();
+        ConnectWireless();
+
+        auto commandQ = std::make_shared<Queue<MessageFromMaster::Data::Command>>(10);
+
         auto communicator =
-          std::make_shared<Communicator>(ip4addr_ntoa(&ip_info.gw), ProjCfg::Socket::EntryPortNumber, write_queue);
+          std::make_shared<Communicator<MessageToMaster>>(masterIP, ProjCfg::Socket::EntryPortNumber, commandQ);
         communicator->run();
 
         auto bluetooth_to_apparatusQ = std::make_shared<Queue<char>>(100, "from bluetooth");
@@ -58,10 +64,9 @@ class Application {
         Apparatus::Create(bluetooth_to_apparatusQ, communicator);
         auto apparatus = Apparatus::Get();
 
-        Message new_msg;
         while (true) {
-            Task::DelayMs(500);
-            write_queue->SendImmediate(new_msg);
+            auto cmd = commandQ->Receive();
+            console.Log("Command arrived!: CMD id: " + std::to_string(cmd->commandID));
         }
     }
 
@@ -71,5 +76,8 @@ class Application {
     { }
     static std::shared_ptr<Application> _this;
 
-    Task mainTask;
+    SmartLogger console{ "Main", ProjCfg::EnableLogForComponent::Main };
+    Task        mainTask;
+
+    asio::ip::address_v4 masterIP;
 };

@@ -18,7 +18,7 @@ class Wifi {
     static std::shared_ptr<Wifi> Get() noexcept
     {
         if (not _this) {
-            ESP_LOGE("WIFI", "Get invoked with initialized Wifi! Call \"Create\" first!");
+            ESP_LOGE("WIFI", "Get invoked with initialized Wifi! Call \"Run\" first!");
             std::terminate();
         }
 

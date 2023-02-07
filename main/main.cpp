@@ -10,12 +10,12 @@
 #include "message.hpp"
 #include "esp_wifi.h"
 
-#include "project_executor.hpp"
+#include "application.hpp"
 
 std::shared_ptr<Application> Application::_this = nullptr;
 
 extern "C" void
 app_main()
 {
-    Application::Create();
+    Application::Run();
 }

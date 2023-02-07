@@ -12,14 +12,14 @@ set(MY_INCLUDE_DIRS ${COMPONENTS_DIR}
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/mutex
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/timer
     ${COMPONENTS_DIR}/io_board
-    ${COMPONENTS_DIR}/tools
+    #    ${COMPONENTS_DIR}/tools
 
     )
 
 set(CXX_SOURCES
     main.cpp
     project_configs.hpp
-    project_executor.hpp
+    application.hpp
 
     ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/gpio/gpio.cpp
@@ -58,8 +58,8 @@ set(CXX_SOURCES
     ${COMPONENTS_DIR}/io_board/main_apparatus.hpp
     ${COMPONENTS_DIR}/io_board/main_apparatus.cpp
 
-    ${COMPONENTS_DIR}/tools/string_parser.hpp
-    ${COMPONENTS_DIR}/tools/utilities.hpp
+    #    ${COMPONENTS_DIR}/tools/string_parser.hpp
+    #    ${COMPONENTS_DIR}/tools/utilities.hpp
 
     ${COMPONENTS_DIR}/master/cmd_interpreter.hpp
 
@@ -77,6 +77,13 @@ idf_component_register(SRCS ${CXX_SOURCES} ${C_SOURCES}
 
 target_include_directories(${COMPONENT_LIB} PRIVATE ${MY_INCLUDE_DIRS})
 
-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast -fexceptions")
-set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")
+if (${CXX_COMPILE_FLAGS} STREQUAL "")
+    message(ERROR "No compile flags set for CXX files!")
+endif ()
+if (${C_COMPILE_FLAGS} STREQUAL "")
+    message(ERROR "No compile flags set for C files!")
+endif ()
+
+set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
+set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS ${C_COMPILE_FLAGS})
 

@@ -73,6 +73,4 @@ enum Socket {
 uint8_t const static high_voltage_reference_select_pin = 20;
 uint8_t const static low_voltage_reference_select_pin  = 21;
 
-
-
 }

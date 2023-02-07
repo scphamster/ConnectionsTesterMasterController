@@ -12,20 +12,24 @@
 #include "queue.hpp"
 #include "message.hpp"
 
+template<typename MessageToMasterT>
 class Communicator {
   public:
     using PortNumT = unsigned short;
-    using QueueT   = Queue<Message>;
+    using WQ       = Queue<MessageToMasterT>;
+    using RQ       = Queue<MessageFromMaster>;
     using Byte     = uint8_t;
+    using CommandsQ = Queue<MessageFromMaster::Data::Command>;
 
     enum MessageType {
         Confirmation = 1
     };
 
-    Communicator(std::string ip_addr, PortNumT port_num, std::shared_ptr<QueueT> write_queue) noexcept
-      : ip{ std::move(ip_addr) }
-      , port{ port_num }
-      , wQueue{ std::move(write_queue) }
+    Communicator(asio::ip::address_v4 ip_addr, PortNumT port_num, std::shared_ptr<CommandsQ> cmdQ) noexcept
+      : masterIP{ std::move(ip_addr) }
+      , currentSocketPort{ port_num }
+      , wQueue{ std::make_shared<WQ>(10) }
+      , commandsQ{std::move(cmdQ)}
       , writeTask([this]() { WriteTask(); },
                   ProjCfg::Tasks::CommunicatorWriteStackSize,
                   ProjCfg::Tasks::CommunicatorWritePrio,
@@ -50,28 +54,22 @@ class Communicator {
             std::terminate();
         }
 
-        console.Log("Obtained port number: " + std::to_string(*working_port));
+        console.Log("Working port: " + std::to_string(*working_port));
         ConfirmOperation(true);
 
         socket->close();
-        port = *working_port;
-
-        endpoint = std::make_shared<asio::ip::tcp::endpoint>(asio::ip::address::from_string(ip), port);
-
-        auto err_code = asio::error_code();
-        //        InitWiFi();
+        currentSocketPort = *working_port;
+        endpoint          = std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort);
+        auto err_code     = asio::error_code();
 
         try {
             socket->connect(*endpoint, err_code);
         } catch (asio::system_error &err) {
-            console.LogError("error upon connection: " + err.code().message());
-
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            std::terminate();
+            console.OnFatalErrorTermination("error upon connection: " + err.code().message());
         }
 
         if (!err_code) {
-            console.Log("Connected!(probably)");
+            console.Log("Connected!");
 
             writeTask.Start();
             readTask.Start();
@@ -81,6 +79,10 @@ class Communicator {
         }
     }
 
+    // SendRequest(Message, std::function<void()>)
+    // SendMsg(Message)
+    // WaitForAnswer
+
   protected:
     [[noreturn]] void WriteTask() noexcept
     {
@@ -89,7 +91,7 @@ class Communicator {
         while (true) {
             auto new_msg = wQueue->Receive();
 
-            auto as_array = reinterpret_cast<std::array<Byte, sizeof(Message)> *>(&(*new_msg));
+            auto as_array = reinterpret_cast<std::array<Byte, sizeof(MessageToMasterT)> *>(&(*new_msg));
 
             console.Log("Sending...");
             std::for_each(as_array->begin(), as_array->end(), [this](const auto &item) {
@@ -107,18 +109,63 @@ class Communicator {
     }
     [[noreturn]] void ReadTask() noexcept
     {
-        auto buf = std::array<char, 200>{};
+        auto one_byte_buffer = Byte{};
+
+        auto main_buffer = std::array<Byte, 256>{};
 
         while (true) {
-            auto bytes_obtained = socket->read_some(asio::buffer(buf.data(), buf.size()));
+            asio::read(*socket, asio::buffer(&one_byte_buffer, 1));
 
-            Task::DelayMs(10);
+            auto message_type = static_cast<MessageFromMaster::MessageType>(one_byte_buffer);
+
+            int bytes_to_read = -1;
+            switch (message_type) {
+            case MessageFromMaster::MessageType::COMMAND: {
+                asio::read(*socket, asio::buffer(&one_byte_buffer, 1));
+                bytes_to_read = one_byte_buffer;
+            } break;
+            case MessageFromMaster::MessageType::RESULTS: {
+                bytes_to_read = MessageFromMaster::Data::MeasurementsResult::SIZE_BYTES;
+            } break;
+            default: {
+                console.OnFatalErrorTermination("Reading task found unknown message ID: " +
+                                                std::to_string(one_byte_buffer));
+            }
+            }
+
+            auto bytes_obtained = asio::read(*socket,
+                                             asio::buffer(main_buffer.data(), main_buffer.size()),
+                                             asio::transfer_exactly(bytes_to_read));
+
+            if (bytes_obtained != bytes_to_read) {
+                console.LogError("Reading task::Reading from socket error!");
+                continue;
+            }
+
+            switch (message_type) {
+            case MessageFromMaster::MessageType::COMMAND: {
+                try {
+                    auto cmd = MessageFromMaster::Data::Command(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
+                    console.Log("Command created! CommandID: " + std::to_string(cmd.commandID));
+
+                    for (auto const &arg : cmd.arguments) {
+                        console.Log("Arg: " + std::to_string(arg));
+                    }
+
+                    commandsQ->Send(cmd);
+                } catch (const std::length_error &err) {
+                    console.LogError("Error command creation! E: " + std::string(err.what()));
+                    continue;
+                }
+            }; break;
+            default: break;
+            }
         }
     }
 
     std::optional<PortNumT> ObtainWorkingPortNumber() noexcept
     {
-        endpoint      = std::make_shared<asio::ip::tcp::endpoint>(asio::ip::address::from_string(ip), port);
+        endpoint      = std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort);
         auto err_code = asio::error_code();
 
         while (true) {
@@ -154,16 +201,17 @@ class Communicator {
         if (not socketIsConnected)
             return { std::nullopt, std::make_error_code(std::errc::not_connected) };
 
-        std::array<Byte, sizeof(RType) * 3> buffer{};
-        auto                                ec = asio::error_code();
+        std::array<Byte, sizeof(RType)> buffer{};
+        auto                            ec = asio::error_code();
 
         asio::read(*socket, asio::buffer(buffer.data(), buffer.size()), asio::transfer_exactly(sizeof(int)), ec);
 
-        for (auto const &byte : buffer) {
-            console.Log("Byte : " + std::to_string(byte));
-        }
+        //        for (auto const &byte : buffer) {
+        //            console.Log("Byte : " + std::to_string(byte));
+        //        }
 
         if (ec) {
+            console.LogError("Reception error: " + ec.message());
             return { std::nullopt, ec };
         }
         else {
@@ -176,7 +224,6 @@ class Communicator {
         buffer.at(1) = (confirm_ok == true) ? 1 : 0;
 
         asio::error_code ec;
-
         asio::write(*socket, asio::buffer(buffer.data(), buffer.size()), ec);
 
         if (!ec)
@@ -190,15 +237,18 @@ class Communicator {
   private:
     SmartLogger console{ "socket", ProjCfg::EnableLogForComponent::Socket };
 
-    std::string ip;
-    PortNumT    port;
+    asio::ip::address_v4 masterIP;
+    PortNumT             currentSocketPort;
 
     std::shared_ptr<asio::io_context>        io_context;
     std::shared_ptr<asio::ip::tcp::socket>   socket;
     std::shared_ptr<asio::ip::tcp::endpoint> endpoint;
-    std::shared_ptr<QueueT>                  wQueue;
-    Task                                     writeTask;
-    Task                                     readTask;
+    std::shared_ptr<WQ>                      wQueue;
+
+    std::shared_ptr<CommandsQ> commandsQ;
+
+    Task writeTask;
+    Task readTask;
 
     bool socketIsConnected = false;
 };

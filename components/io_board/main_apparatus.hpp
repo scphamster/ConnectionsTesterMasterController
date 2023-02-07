@@ -30,8 +30,9 @@ class Apparatus {
     using CommResult         = Board::Result;
     using CommandCatcher     = CommandInterpreter<Bluetooth>;
     using UserCommand        = typename CommandCatcher::UserCommand;
+    using CommunicatorT = Communicator<MessageToMaster>;
 
-    void static Create(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<Communicator> socket) noexcept
+    void static Create(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<CommunicatorT> socket) noexcept
     {
         _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue), std::move(socket) } };
     }
@@ -41,7 +42,7 @@ class Apparatus {
 
         if (_this == nullptr) {
             console->LogError("MainApparatus",
-                              "Apparatus was not created yet, invoke Apparatus::Create before trying to Get instance");
+                              "Apparatus was not created yet, invoke Apparatus::Run before trying to Get instance");
             std::terminate();
         }
 
@@ -698,7 +699,7 @@ class Apparatus {
     }
 
   private:
-    Apparatus(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<Communicator> new_socket)
+    Apparatus(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<CommunicatorT> new_socket)
       : console{ "Main", ProjCfg::EnableLogForComponent::Main }
       , pinsVoltagesResultsQ{ std::make_shared<QueueT>(10) }
       , commandCatcher{ std::move(input_queue) }
@@ -731,7 +732,7 @@ class Apparatus {
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
     CommandCatcher                commandCatcher;
-    std::shared_ptr<Communicator> socket;
+    std::shared_ptr<CommunicatorT> socket;
 
     Pin testPin{ 26, Pin::Direction::Output };
 

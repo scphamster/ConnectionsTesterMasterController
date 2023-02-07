@@ -7,6 +7,7 @@
 
 #include "esp_log.h"
 #include "my_mutex.hpp"
+#include "task.hpp"
 
 class EspLogger {
   public:
@@ -22,13 +23,18 @@ class EspLogger {
 
     void static Init() { _this = std::shared_ptr<EspLogger>{ new EspLogger{} }; }
 
-    static void Log(std::string tag, std::string msg)  noexcept
+    static void Log(std::string tag, std::string msg) noexcept { ESP_LOGI(tag.c_str(), "%s", msg.c_str()); }
+    static void LogError(std::string tag, std::string msg) noexcept { ESP_LOGE(tag.c_str(), "%s", msg.c_str()); }
+    static void OnFailTermination(std::string tag, std::string msg) noexcept
     {
-        ESP_LOGI(tag.c_str(), "%s", msg.c_str());
-    }
-    static void LogError(std::string tag, std::string msg) noexcept
-    {
-        ESP_LOGE(tag.c_str(), "%s", msg.c_str());
+        LogError(tag, msg);
+
+        for (int i = 5; i >= 0; i--) {
+            LogError("TERMINATING", "...." + std::to_string(i) + "....");
+            Task::DelayMs(500);
+        }
+
+        std::terminate();
     }
 
   protected:
@@ -56,6 +62,9 @@ class SmartLogger {
     {
         if (isEnabled)
             console->Log(tag, text);
+    }
+    void OnFatalErrorTermination(std::string msg) noexcept {
+        console->OnFailTermination(tag, msg);
     }
     void SetNewTag(std::string new_tag) noexcept { tag = new_tag; }
 
