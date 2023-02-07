@@ -122,7 +122,7 @@ class Communicator {
             switch (message_type) {
             case MessageFromMaster::MessageType::COMMAND: {
                 asio::read(*socket, asio::buffer(&one_byte_buffer, 1));
-                bytes_to_read = one_byte_buffer;
+                bytes_to_read = 4;
             } break;
             case MessageFromMaster::MessageType::RESULTS: {
                 bytes_to_read = MessageFromMaster::Data::MeasurementsResult::SIZE_BYTES;
@@ -145,7 +145,7 @@ class Communicator {
             switch (message_type) {
             case MessageFromMaster::MessageType::COMMAND: {
                 try {
-                    auto cmd = MessageFromMaster::Data::Command(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
+                    auto cmd = MessageFromMaster::Data::Command(std::vector<Byte>(main_buffer.begin(), main_buffer.begin() + bytes_obtained));
                     console.Log("Command created! CommandID: " + std::to_string(cmd.commandID));
 
                     for (auto const &arg : cmd.arguments) {

@@ -41,7 +41,7 @@ class Application {
                                             std::string(esp_err_to_name(err)));
         }
 
-        masterIP = asio::ip::address_v4(ip_info.gw.addr);
+        masterIP = asio::ip::address_v4::from_string(ip4addr_ntoa(&ip_info.gw));
         console.Log("Master's IP: " + masterIP.to_string());
     }
 
