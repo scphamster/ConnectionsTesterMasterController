@@ -16,10 +16,11 @@ class Board {
     using Byte                     = uint8_t;
     using PinNumT                  = size_t;
     using AddressT                 = Byte;
+    using FirmwareVersionT         = Byte;
     using ADCValueT                = uint16_t;
     using AdcValueLoRes            = Byte;
     using InternalCounterT         = uint32_t;
-    using CommandArgsT             = Byte;
+    using CommandArgT              = Byte;
     using AllPinsVoltages          = std::array<ADCValueT, pinCount>;
     using AllPinsVoltages8B        = std::array<AdcValueLoRes, pinCount>;
     using OutputVoltageRealT       = float;
@@ -177,7 +178,7 @@ class Board {
     [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
     Result                                   SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
     {
-        auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgsT{ static_cast<Byte>(pin) }, retry_times);
+        auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgT{ static_cast<Byte>(pin) }, retry_times);
 
         if (result != Result::Good) {
             console.LogError("Voltage setting on pin " + std::to_string(pin) + " unsuccessful");
@@ -188,7 +189,7 @@ class Board {
     Result SetOutputVoltageValue(OutputVoltage value, int retry_times = 0) noexcept
     {
         auto result =
-          SendCmd(ToUnderlying(Command::SetOutputVoltage), CommandArgsT{ static_cast<Byte>(value) }, retry_times);
+          SendCmd(ToUnderlying(Command::SetOutputVoltage), CommandArgT{ static_cast<Byte>(value) }, retry_times);
 
         if (result != Result::Good)
             console.LogError("Voltage setting unsuccessful");
@@ -294,9 +295,9 @@ class Board {
         retval.outputResistance1 = read_result.second->at(1);
         retval.inputResistance2  = read_result.second->at(2);
         retval.outputResistance2 = read_result.second->at(3);
-        retval.shuntResistance = read_result.second->at(4);
+        retval.shuntResistance   = read_result.second->at(4);
         retval.outputVoltageLow  = read_result.second->at(5);
-        retval.outputVoltageHigh  = read_result.second->at(6);
+        retval.outputVoltageHigh = read_result.second->at(6);
 
         return { read_result.first, retval };
     }
@@ -342,7 +343,7 @@ class Board {
     std::pair<Result, std::optional<ADCValueT>> GetPinVoltage(Byte pin, int retry_times = 0) noexcept
     {
         auto [comm_result, response] = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
-                                                                         CommandArgsT{ pin },
+                                                                         CommandArgT{ pin },
                                                                          VoltageCheckCmd::timeToWaitForResponseOnePinMs,
                                                                          retry_times);
 
@@ -357,7 +358,7 @@ class Board {
     {
         auto [comm_result, voltages] =
           SendCmdAndReadResponse<AllPinsVoltages8B>(static_cast<Byte>(Command::GetPinVoltage),
-                                                    CommandArgsT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
+                                                    CommandArgT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
                                                     VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
 
         if (comm_result != Result::Good) {
@@ -464,7 +465,7 @@ class Board {
     }
 
   protected:
-    Result SendCmd(Byte cmd, CommandArgsT args, int retry_times = 0) noexcept
+    Result SendCmd(Byte cmd, CommandArgT args, int retry_times = 0) noexcept
     {
         int retry_counter = 0;
 
@@ -487,7 +488,7 @@ class Board {
         else
             return Result::BadCommunication;
     }
-    Result SendCmd(Byte cmd, int retry_times = 0) noexcept { return SendCmd(cmd, CommandArgsT{}, retry_times); }
+    Result SendCmd(Byte cmd, int retry_times = 0) noexcept { return SendCmd(cmd, CommandArgT{}, retry_times); }
     template<typename ReturnType>
     std::pair<Result, std::optional<ReturnType>> ReadResponse(int retry_times = 0) noexcept
     {
@@ -513,10 +514,10 @@ class Board {
     }
 
     template<typename ReturnType>
-    std::pair<Result, std::optional<ReturnType>> SendCmdAndReadResponse(Byte         cmd,
-                                                                        CommandArgsT args,
-                                                                        size_t       delay_for_response_ms,
-                                                                        int          retry_times = 0) noexcept
+    std::pair<Result, std::optional<ReturnType>> SendCmdAndReadResponse(Byte        cmd,
+                                                                        CommandArgT args,
+                                                                        size_t      delay_for_response_ms,
+                                                                        int         retry_times = 0) noexcept
     {
         auto send_result = SendCmd(cmd, args, retry_times);
 
@@ -534,7 +535,7 @@ class Board {
                                                                         size_t delay_for_response_ms,
                                                                         int    retry_times = 0) noexcept
     {
-        return SendCmdAndReadResponse<ReturnType>(cmd, CommandArgsT{}, delay_for_response_ms, retry_times);
+        return SendCmdAndReadResponse<ReturnType>(cmd, CommandArgT{}, delay_for_response_ms, retry_times);
     }
 
     // tasks

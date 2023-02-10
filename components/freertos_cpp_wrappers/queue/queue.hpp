@@ -134,3 +134,75 @@ class StreamBuffer {
   private:
     StreamBufferHandle_t handle;
 };
+
+class ByteStreamBuffer {
+  public:
+    using TimeoutMsec = portTickType;
+    using Byte        = uint8_t;
+
+    ByteStreamBuffer(size_t capacity, TimeoutMsec config_buffer_operation_retry_timeoutMS = 50) noexcept
+      : handle{ xStreamBufferCreate(capacity, UNLOCK_TRIGGER_SIZE) }
+      , configBufferOperationTimeout{ config_buffer_operation_retry_timeoutMS }
+    {
+        configASSERT(handle != nullptr);
+    }
+
+    bool Send(const std::vector<Byte> &bytes_to_send, TimeoutMsec timeoutMsec = portMAX_DELAY) noexcept
+    {
+        if (timeoutMsec != portMAX_DELAY)
+            timeoutMsec = pdMS_TO_TICKS(timeoutMsec);
+
+        auto bytes_number = bytes_to_send.size();
+
+        size_t bytes_written_num{};
+
+        bytes_written_num = xStreamBufferSend(handle, &bytes_number, sizeof(bytes_number), timeoutMsec);
+        if (bytes_written_num != sizeof(bytes_number))
+            return false;
+
+        bytes_written_num = xStreamBufferSend(handle, bytes_to_send.data(), bytes_number, timeoutMsec);
+
+        return (bytes_written_num == bytes_number) ? true : false;
+    }
+
+    std::optional<std::vector<Byte>> Receive(TimeoutMsec timeoutMsec = portMAX_DELAY) noexcept
+    {
+        size_t bytes_to_read_number{};
+        size_t bytes_read_number{};
+
+        if (timeoutMsec != portMAX_DELAY)
+            timeoutMsec = pdMS_TO_TICKS(timeoutMsec);
+
+        auto deadline = esp_timer_get_time() + timeoutMsec * 1000;
+
+        while (bytes_read_number != sizeof(bytes_to_read_number)) {
+            bytes_read_number += xStreamBufferReceive(handle,
+                                                      reinterpret_cast<Byte *>(&bytes_to_read_number) + bytes_read_number,
+                                                      sizeof(bytes_to_read_number) - bytes_read_number,
+                                                      pdMS_TO_TICKS(configBufferOperationTimeout));
+
+            if (deadline < esp_timer_get_time())
+                return std::nullopt;
+        }
+
+        auto data = std::vector<Byte>(bytes_to_read_number);
+
+        bytes_read_number = 0;
+        while (bytes_read_number != bytes_to_read_number) {
+            bytes_read_number += xStreamBufferReceive(handle,
+                                                      data.data() + bytes_read_number,
+                                                      bytes_to_read_number - bytes_read_number,
+                                                      pdMS_TO_TICKS(configBufferOperationTimeout));
+
+            if (deadline < esp_timer_get_time())
+                return std::nullopt;
+        }
+
+        return data;
+    }
+
+  private:
+    constexpr static size_t UNLOCK_TRIGGER_SIZE = 1;
+    StreamBufferHandle_t    handle;
+    TimeoutMsec             configBufferOperationTimeout;
+};

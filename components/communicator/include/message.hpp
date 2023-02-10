@@ -69,9 +69,67 @@ struct MessageFromMaster {
     };
 
     MessageType intrinsicDataType{};
-    Data     data;
+    Data        data;
 };
 
-struct MessageToMaster {
+class MessageToMaster {
+  public:
+    using Byte = uint8_t;
 
+    virtual ~MessageToMaster() = default;
+
+    virtual std::vector<Byte> Serialize() noexcept = 0;
+};
+
+class PinConnectivity final : MessageToMaster {
+  public:
+    struct PinAffinityAndId {
+        Byte boardAffinity;
+        Byte id;
+
+
+    };
+    struct PinConnectionData {
+        PinAffinityAndId affinityAndId;
+        Byte             connectionVoltageLvl;
+    };
+
+    explicit PinConnectivity(PinAffinityAndId master_pin, std::vector<PinConnectionData> new_connections) noexcept
+      : masterPin{ std::move(master_pin) }
+      , connections{ std::move(new_connections) }
+    { }
+
+    std::vector<Byte> Serialize() noexcept final
+    {
+        std::vector<Byte> result;
+        result.reserve(sizeof(MSG_ID) + sizeof(masterPin) + 1 + connections.size() * sizeof(PinConnectionData));
+
+        result.push_back(MSG_ID);
+        result.push_back(masterPin.boardAffinity);
+        result.push_back(masterPin.id);
+        result.push_back(static_cast<Byte>(connections.size()));
+
+        for (auto &connection : connections) {
+            result.push_back(connection.affinityAndId.boardAffinity);
+            result.push_back(connection.affinityAndId.id);
+            result.push_back(connection.connectionVoltageLvl);
+        }
+
+        return result;
+    }
+
+  private:
+    constexpr static Byte          MSG_ID = 50;
+    PinAffinityAndId               masterPin;
+    std::vector<PinConnectionData> connections;
+};
+
+class StatusInfo {
+    struct BoardStatus {
+        Board::AddressT         address;
+        Board::InternalCounterT internalCounter;
+        Board::FirmwareVersionT firmwareVersion;
+    };
+
+    std::vector<Board::AddressT> boardsOnLine;
 };

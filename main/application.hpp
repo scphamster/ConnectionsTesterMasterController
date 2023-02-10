@@ -5,7 +5,6 @@
 #include "reset_reason_notifier.hpp"
 #include "esp_logger.hpp"
 
-
 class Application {
   public:
     using IPv4 = uint32_t;
@@ -54,9 +53,10 @@ class Application {
         ConnectWireless();
 
         auto commandQ = std::make_shared<Queue<MessageFromMaster::Data::Command>>(10);
+        auto writeSB  = std::make_shared<ByteStreamBuffer>(256);
 
         auto communicator =
-          std::make_shared<Communicator<MessageToMaster>>(masterIP, ProjCfg::Socket::EntryPortNumber, commandQ);
+          std::make_shared<Communicator<MessageToMaster>>(masterIP, ProjCfg::Socket::EntryPortNumber, writeSB, commandQ);
         communicator->run();
 
         auto bluetooth_to_apparatusQ = std::make_shared<Queue<char>>(100, "from bluetooth");
@@ -64,9 +64,25 @@ class Application {
         Apparatus::Create(bluetooth_to_apparatusQ, communicator);
         auto apparatus = Apparatus::Get();
 
+        auto msg_to_master =
+          PinConnectivity{ PinConnectivity::PinAffinityAndId{ 37, 1 },
+                           std::vector<PinConnectivity::PinConnectionData>{ PinConnectivity::PinConnectionData{
+                                                                              PinConnectivity::PinAffinityAndId{ 38, 1 },
+                                                                              10,
+                                                                            },
+                                                                            PinConnectivity::PinConnectionData{
+                                                                              PinConnectivity::PinAffinityAndId{ 39, 1 },
+                                                                              100,
+                                                                            } } };
+        auto serialized = msg_to_master.Serialize();
+
         while (true) {
             auto cmd = commandQ->Receive();
             console.Log("Command arrived!: CMD id: " + std::to_string(cmd->commandID));
+
+            console.Log("Sending to master...");
+            writeSB->Send(serialized);
+            console.Log("Sent!");
         }
     }
 
