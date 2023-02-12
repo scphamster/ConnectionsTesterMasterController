@@ -13,6 +13,7 @@ template<typename ItemType>
 class Queue {
   public:
     using TimeT = portTickType;
+    using Byte = uint8_t;
 
     explicit Queue(size_t queue_length)
       : handle{ xQueueCreate(queue_length, sizeof(ItemType)) }
@@ -34,10 +35,10 @@ class Queue {
 
     std::optional<ItemType> Receive(TimeT timeout = portMAX_DELAY)
     {
-        ItemType new_item;
+        std::array<Byte, sizeof(ItemType)> buffer{};
 
-        if (xQueueReceive(handle, &new_item, timeout) == pdTRUE)
-            return new_item;
+        if (xQueueReceive(handle, buffer.data(), timeout) == pdTRUE)
+            return *reinterpret_cast<ItemType*>(buffer.data());
         else
             return std::nullopt;
     }

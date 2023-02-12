@@ -19,16 +19,19 @@ class Communicator {
     using WQ        = Queue<MessageToMasterT>;
     using RQ        = Queue<MessageFromMaster>;
     using Byte      = uint8_t;
-    using CommandsQ = Queue<MessageFromMaster::Data::Command>;
+    using CommandsQ = Queue<MessageFromMaster>;
 
     enum MessageType {
         Confirmation = 1
     };
 
-    Communicator(asio::ip::address_v4 ip_addr, PortNumT port_num, std::shared_ptr<ByteStreamBuffer> wQ, std::shared_ptr<CommandsQ> cmdQ) noexcept
+    Communicator(asio::ip::address_v4              ip_addr,
+                 PortNumT                          port_num,
+                 std::shared_ptr<ByteStreamBuffer> wQ,
+                 std::shared_ptr<CommandsQ>        cmdQ) noexcept
       : masterIP{ std::move(ip_addr) }
       , currentSocketPort{ port_num }
-      , wSB{std::move(wQ)}
+      , wSB{ std::move(wQ) }
       , commandsQ{ std::move(cmdQ) }
       , writeTask([this]() { WriteTask(); },
                   ProjCfg::Tasks::CommunicatorWriteStackSize,
@@ -97,70 +100,44 @@ class Communicator {
     }
     [[noreturn]] void ReadTask() noexcept
     {
-        auto one_byte_buffer = Byte{};
-        auto main_buffer     = std::array<Byte, 256>{};
-        auto err_code        = asio::error_code();
+        auto message_size_buffer = int{};
+        auto main_buffer         = std::array<Byte, 256>{};
+        auto err_code            = asio::error_code();
 
         while (true) {
-            asio::read(*socket, asio::buffer(&one_byte_buffer, 1), err_code);
+            asio::read(*socket, asio::buffer(&message_size_buffer, sizeof(message_size_buffer)), err_code);
             if (err_code)
-                console.OnFatalErrorTermination("error reading message type!" + err_code.message());
+                console.OnFatalErrorTermination("error reading message size!" + err_code.message());
 
-            auto message_type = static_cast<MessageFromMaster::MessageType>(one_byte_buffer);
+            auto message_size      = message_size_buffer;
+            auto real_message_size = asio::read(*socket,
+                                                asio::buffer(main_buffer.data(), main_buffer.size()),
+                                                asio::transfer_exactly(message_size),
+                                                err_code);
 
-            int args_num_to_read = -1;
-            switch (message_type) {
-            case MessageFromMaster::MessageType::COMMAND: {
-                asio::read(*socket, asio::buffer(&one_byte_buffer, 1), err_code);
-
-                if (err_code) {
-                    console.OnFatalErrorTermination("error reading message number of args! " + err_code.message());
-                }
-
-                args_num_to_read = one_byte_buffer;
-            } break;
-            case MessageFromMaster::MessageType::RESULTS: {
-                args_num_to_read = MessageFromMaster::Data::MeasurementsResult::SIZE_BYTES;
-            } break;
-            default: {
-                console.OnFatalErrorTermination("Reading task found unknown message ID: " +
-                                                std::to_string(one_byte_buffer));
+            if (message_size != real_message_size) {
+                console.LogError("Message size is " + std::to_string(real_message_size) +
+                                 " and is different from expected: " + std::to_string(message_size));
+                continue;
             }
-            }
-
-            auto bytes_obtained = asio::read(*socket,
-                                             asio::buffer(main_buffer.data(), main_buffer.size()),
-                                             asio::transfer_exactly(args_num_to_read),
-                                             err_code);
 
             if (err_code) {
                 console.OnFatalErrorTermination("error during message body reading: " + err_code.message());
             }
 
-            if (bytes_obtained != args_num_to_read) {
-                console.LogError("Reading task::Reading from socket error!");
+            try {
+                auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
+                console.Log("New successful creation of messageFromMaster!");
+                commandsQ->Send(msg);
+            }
+            catch(const std::invalid_argument &exception) {
+                console.LogError("Invalid argument exception when creating message from master");
+            }
+            catch(...){
+                console.LogError("Unknown error when creating MessageFromMaster");
                 continue;
             }
 
-            switch (message_type) {
-            case MessageFromMaster::MessageType::COMMAND: {
-                try {
-                    auto cmd = MessageFromMaster::Data::Command(
-                      std::vector<Byte>(main_buffer.begin(), main_buffer.begin() + bytes_obtained));
-                    console.Log("Command created! CommandID: " + std::to_string(cmd.commandID));
-
-                    for (auto const &arg : cmd.arguments) {
-                        console.Log("Arg: " + std::to_string(arg));
-                    }
-
-                    commandsQ->Send(cmd);
-                } catch (const std::length_error &err) {
-                    console.LogError("Error command creation! E: " + std::string(err.what()));
-                    continue;
-                }
-            }; break;
-            default: break;
-            }
         }
     }
 

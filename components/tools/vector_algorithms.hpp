@@ -2,7 +2,7 @@
 
 #include <vector>
 
-class VectorAlgorithm {
+class VectorAlgo {
   public:
     using Byte       = uint8_t;
     using IteratorT  = std::vector<Byte>::iterator;

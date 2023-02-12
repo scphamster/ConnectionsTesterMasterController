@@ -52,7 +52,7 @@ class Application {
         Initialize();
         ConnectWireless();
 
-        auto commandQ = std::make_shared<Queue<MessageFromMaster::Data::Command>>(10);
+        auto commandQ = std::make_shared<Queue<MessageFromMaster>>(10);
         auto writeSB  = std::make_shared<ByteStreamBuffer>(256);
 
         auto communicator =
@@ -78,11 +78,7 @@ class Application {
 
         while (true) {
             auto cmd = commandQ->Receive();
-            console.Log("Command arrived!: CMD id: " + std::to_string(cmd->commandID));
 
-            console.Log("Sending to master...");
-            writeSB->Send(serialized);
-            console.Log("Sent!");
         }
     }
 

@@ -5,71 +5,61 @@
 
 #include "vector_algorithms.hpp"
 
-struct MessageFromMaster {
+class MessageFromMaster {
+  public:
     using Byte = uint8_t;
 
-    enum class MessageType : Byte {
-        COMMAND = 200,
-        RESULTS,
+    union Command {
+        enum class ID : Byte {
+            MeasureAll = 100,
+            EnableOutputForPin,
+            SetOutputVoltageLevel,
+            CheckConnections,
+            CheckResistances,
+            CheckVoltages,
+            CheckRaw,
+            GetAllBoardsIds,
+            GetInternalCounter,
+            GetTaskStackWatermark,
+            SetNewAddressForBoard,
+            SetInternalParameters,
+            GetInternalParameters,
+            Test,
+            Unknown
+        };
+        using Bytes = std::vector<Byte>;
+        struct MeasureAll { };
+        struct SetVoltageAtPin {
+            SetVoltageAtPin(const Bytes &bytes)
+              : boardAffinity{ bytes.at(1) }
+              , pinNumber{ bytes.at(2) }
+            { }
+
+            Byte boardAffinity;
+            Byte pinNumber;
+        };
+        Command(std::vector<Byte> const &bytes)
+        {
+            auto msg_id = bytes.at(0);
+
+            switch (static_cast<ID>(msg_id)) {
+            case ID::MeasureAll: measureAll = MeasureAll(); break;
+
+            default: break;
+            };
+        }
+
+        MeasureAll measureAll;
     };
 
-    union Data {
-        struct Command {
-            enum class UserCommand {
-                MeasureAll = 100,
-                EnableOutputForPin,
-                SetOutputVoltageLevel,
-                CheckConnections,
-                CheckResistances,
-                CheckVoltages,
-                CheckRaw,
-                GetAllBoardsIds,
-                GetInternalCounter,
-                GetTaskStackWatermark,
-                SetNewAddressForBoard,
-                SetInternalParameters,
-                GetInternalParameters,
-                Test,
-                Unknown
-            };
+    MessageFromMaster(const std::vector<Byte> &bytes)
+      : cmd{ bytes }
+      , commandID{ bytes.at(0) }
+    { }
 
-            Command() = default;
-            Command(std::vector<Byte> byte_array)
-            {
-                auto iterator = byte_array.begin();
-
-                auto cmdID = VectorAlgorithm::Make<int>(iterator, byte_array.end());
-
-                if (cmdID == std::nullopt) {
-                    throw std::length_error("make failed!");
-                }
-
-                commandID = *cmdID;
-
-                switch (commandID) {
-                case ToUnderlying(UserCommand::MeasureAll): break;
-                default: break;
-                }
-            }
-
-            struct MeasureAll {
-                constexpr static auto CMD_ARGS_LEN_BYTES = 0;
-            };
-
-            int              commandID = -1;
-            std::vector<int> arguments{};
-        };
-        struct MeasurementsResult {
-            using BoardId                                             = Byte;
-            using VoltageOnPin                                        = Byte;
-            constexpr static int                      SIZE_BYTES      = Board::pinCount + 1;
-            BoardId                                   resultsForBoard = 0;
-            std::array<VoltageOnPin, Board::pinCount> pinsVoltages{};
-        };
-    };
-
-    MessageType intrinsicDataType{};
-    Data        data;
+  private:
+    Command     cmd;
+    Command::ID commandID{};
 };
 
 class MessageToMaster {
@@ -86,8 +76,6 @@ class PinConnectivity final : MessageToMaster {
     struct PinAffinityAndId {
         Byte boardAffinity;
         Byte id;
-
-
     };
     struct PinConnectionData {
         PinAffinityAndId affinityAndId;
