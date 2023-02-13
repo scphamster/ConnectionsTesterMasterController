@@ -29,6 +29,21 @@ class MessageFromMaster {
         };
         using Bytes = std::vector<Byte>;
         struct MeasureAll { };
+        struct SetVoltageLevel {
+            SetVoltageLevel(Byte byte)
+            {
+                if (byte > ToUnderlying(Level::High))
+                    throw std::errc::invalid_argument;
+
+                lvl = static_cast<Level>(byte);
+            }
+            enum class Level : Byte {
+                Low = 0,
+                High
+            };
+
+            Level lvl{ Level::Low };
+        };
         struct SetVoltageAtPin {
             SetVoltageAtPin(const Bytes &bytes)
               : boardAffinity{ bytes.at(1) }
@@ -44,12 +59,14 @@ class MessageFromMaster {
 
             switch (static_cast<ID>(msg_id)) {
             case ID::MeasureAll: measureAll = MeasureAll(); break;
+            case ID::SetOutputVoltageLevel: setVLvl = SetVoltageLevel{ bytes.at(1) }; break;
 
             default: break;
             };
         }
 
-        MeasureAll measureAll;
+        MeasureAll      measureAll;
+        SetVoltageLevel setVLvl;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -112,12 +129,33 @@ class PinConnectivity final : MessageToMaster {
     std::vector<PinConnectionData> connections;
 };
 
-class StatusInfo {
-    struct BoardStatus {
-        Board::AddressT         address;
-        Board::InternalCounterT internalCounter;
-        Board::FirmwareVersionT firmwareVersion;
+class Confirmation final : MessageToMaster {
+  public:
+    enum class Answer : Byte {
+        CommandAcknowledge = 1,
+        CommandNoAcknowledge,
+        CommandPerformanceFailure,
+        CommandPerformanceSuccess,
+        CommandAcknowledgeTimeout,
+        CommandPerformanceTimeout,
+        CommunicationFailur,
     };
 
-    std::vector<Board::AddressT> boardsOnLine;
+    explicit Confirmation(Answer ans) noexcept
+      : answer{ ans }
+    { }
+
+    std::vector<Byte> Serialize() noexcept final
+    {
+        std::vector<Byte> v;
+        v.reserve(sizeof(MSG_ID) + sizeof(answer));
+
+        v.push_back(MSG_ID);
+        v.push_back(static_cast<Byte>(answer));
+        return v;
+    };
+
+  private:
+    constexpr static Byte MSG_ID = 51;
+    Answer                answer;
 };

@@ -76,9 +76,14 @@ class Application {
                                                                             } } };
         auto serialized = msg_to_master.Serialize();
 
+        auto ack = Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize();
+        auto cmd_good = Confirmation(Confirmation::Answer::CommandPerformanceSuccess).Serialize();
+
         while (true) {
             auto cmd = commandQ->Receive();
-
+            writeSB->Send(ack);
+            Task::DelayMs(100);
+            writeSB->Send(cmd_good);
         }
     }
 

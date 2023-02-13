@@ -87,14 +87,14 @@ class Communicator {
     {
         asio::error_code err_code;
         while (true) {
-            auto to_be_sent_bytes = wSB->Receive();
+            auto bytes_to_be_sent = wSB->Receive();
 
-            if (to_be_sent_bytes == std::nullopt) {
+            if (bytes_to_be_sent == std::nullopt) {
                 console.LogError("message to be sent is unhealthy!");
                 continue;
             }
 
-            asio::write(*socket, asio::buffer(to_be_sent_bytes->data(), to_be_sent_bytes->size()));
+            asio::write(*socket, asio::buffer(bytes_to_be_sent->data(), bytes_to_be_sent->size()));
             console.Log("bytes sent to master!");
         }
     }
