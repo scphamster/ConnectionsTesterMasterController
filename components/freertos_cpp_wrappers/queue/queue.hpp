@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <optional>
 #include <mutex>
 
 #include "freertos/FreeRTOS.h"
@@ -8,11 +9,11 @@
 #include "semaphore.hpp"
 #include "freertos/stream_buffer.h"
 #include "my_mutex.hpp"
-
 template<typename ItemType>
 class Queue {
   public:
     using TimeT = portTickType;
+    using Byte = uint8_t;
 
     explicit Queue(size_t queue_length)
       : handle{ xQueueCreate(queue_length, sizeof(ItemType)) }
@@ -32,16 +33,23 @@ class Queue {
         vQueueDelete(handle);
     }
 
-    ItemType Receive(TimeT timeout = portMAX_DELAY)
+    std::optional<ItemType> Receive(TimeT timeout = portMAX_DELAY)
     {
-        ItemType new_item;
-        configASSERT(xQueueReceive(handle, &new_item, timeout) == pdTRUE);   // todo: handle exception
-        return new_item;
+        std::array<Byte, sizeof(ItemType)> buffer{};
+
+        if (xQueueReceive(handle, buffer.data(), timeout) == pdTRUE)
+            return *reinterpret_cast<ItemType*>(buffer.data());
+        else
+            return std::nullopt;
     }
 
     bool Send(ItemType const &item, TimeT timeout_ms) const noexcept
     {
         return (xQueueSend(handle, static_cast<const void *>(&item), pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? true : false;
+    }
+    bool Send(ItemType const &item) const noexcept
+    {
+        return (xQueueSend(handle, static_cast<const void *>(&item), portMAX_DELAY) == pdTRUE) ? true : false;
     }
     bool SendImmediate(ItemType const &item) const noexcept { return Send(item, 0); }
     void Flush() noexcept
@@ -126,4 +134,76 @@ class StreamBuffer {
 
   private:
     StreamBufferHandle_t handle;
+};
+
+class ByteStreamBuffer {
+  public:
+    using TimeoutMsec = portTickType;
+    using Byte        = uint8_t;
+
+    ByteStreamBuffer(size_t capacity, TimeoutMsec config_buffer_operation_retry_timeoutMS = 50) noexcept
+      : handle{ xStreamBufferCreate(capacity, UNLOCK_TRIGGER_SIZE) }
+      , configBufferOperationTimeout{ config_buffer_operation_retry_timeoutMS }
+    {
+        configASSERT(handle != nullptr);
+    }
+
+    bool Send(const std::vector<Byte> &bytes_to_send, TimeoutMsec timeoutMsec = portMAX_DELAY) noexcept
+    {
+        if (timeoutMsec != portMAX_DELAY)
+            timeoutMsec = pdMS_TO_TICKS(timeoutMsec);
+
+        auto bytes_number = bytes_to_send.size();
+
+        size_t bytes_written_num{};
+
+        bytes_written_num = xStreamBufferSend(handle, &bytes_number, sizeof(bytes_number), timeoutMsec);
+        if (bytes_written_num != sizeof(bytes_number))
+            return false;
+
+        bytes_written_num = xStreamBufferSend(handle, bytes_to_send.data(), bytes_number, timeoutMsec);
+
+        return (bytes_written_num == bytes_number) ? true : false;
+    }
+
+    std::optional<std::vector<Byte>> Receive(TimeoutMsec timeoutMsec = portMAX_DELAY) noexcept
+    {
+        size_t bytes_to_read_number{};
+        size_t bytes_read_number{};
+
+        if (timeoutMsec != portMAX_DELAY)
+            timeoutMsec = pdMS_TO_TICKS(timeoutMsec);
+
+        auto deadline = esp_timer_get_time() + timeoutMsec * 1000;
+
+        while (bytes_read_number != sizeof(bytes_to_read_number)) {
+            bytes_read_number += xStreamBufferReceive(handle,
+                                                      reinterpret_cast<Byte *>(&bytes_to_read_number) + bytes_read_number,
+                                                      sizeof(bytes_to_read_number) - bytes_read_number,
+                                                      pdMS_TO_TICKS(configBufferOperationTimeout));
+
+            if (deadline < esp_timer_get_time())
+                return std::nullopt;
+        }
+
+        auto data = std::vector<Byte>(bytes_to_read_number);
+
+        bytes_read_number = 0;
+        while (bytes_read_number != bytes_to_read_number) {
+            bytes_read_number += xStreamBufferReceive(handle,
+                                                      data.data() + bytes_read_number,
+                                                      bytes_to_read_number - bytes_read_number,
+                                                      pdMS_TO_TICKS(configBufferOperationTimeout));
+
+            if (deadline < esp_timer_get_time())
+                return std::nullopt;
+        }
+
+        return data;
+    }
+
+  private:
+    constexpr static size_t UNLOCK_TRIGGER_SIZE = 1;
+    StreamBufferHandle_t    handle;
+    TimeoutMsec             configBufferOperationTimeout;
 };

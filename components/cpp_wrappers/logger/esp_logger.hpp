@@ -1,8 +1,13 @@
 #pragma once
+#include "project_configs.hpp"
+
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "esp_log.h"
+#include "my_mutex.hpp"
+#include "task.hpp"
 
 class EspLogger {
   public:
@@ -16,14 +21,55 @@ class EspLogger {
         }
     }
 
-    void static Init() noexcept { _this = std::shared_ptr<EspLogger>{ new EspLogger }; }
+    void static Init() { _this = std::shared_ptr<EspLogger>{ new EspLogger{} }; }
 
-    void Log(std::string msg) const noexcept { ESP_LOGI("", "%s", msg.c_str()); }
-    void LogError(std::string msg) const noexcept { ESP_LOGE("", "%s", msg.c_str()); }
+    static void Log(std::string tag, std::string msg) noexcept { ESP_LOGI(tag.c_str(), "%s", msg.c_str()); }
+    static void LogError(std::string tag, std::string msg) noexcept { ESP_LOGE(tag.c_str(), "%s", msg.c_str()); }
+    static void OnFailTermination(std::string tag, std::string msg) noexcept
+    {
+        LogError(tag, msg);
+
+        for (int i = 5; i >= 0; i--) {
+            LogError("TERMINATING", "...." + std::to_string(i) + "....");
+            Task::DelayMs(500);
+        }
+
+        std::terminate();
+    }
 
   protected:
   private:
-    EspLogger() noexcept = default;
+    EspLogger() = default;
 
     std::shared_ptr<EspLogger> static _this;
+    Mutex mutable writeMutex;
+};
+
+class SmartLogger {
+  public:
+    SmartLogger(std::string new_tag, ProjCfg::EnableLogForComponent component_logging_enabled)
+      : tag{ new_tag }
+      , console{ EspLogger::Get() }
+      , isEnabled{ static_cast<bool>(component_logging_enabled) }
+    { }
+
+    void LogError(std::string text) noexcept
+    {
+        if (isEnabled or ProjCfg::Log::LogAllErrors)
+            console->LogError(tag, text);
+    }
+    void Log(std::string text) const noexcept
+    {
+        if (isEnabled)
+            console->Log(tag, text);
+    }
+    void OnFatalErrorTermination(std::string msg) noexcept {
+        console->OnFailTermination(tag, msg);
+    }
+    void SetNewTag(std::string new_tag) noexcept { tag = new_tag; }
+
+  private:
+    std::string                tag     = "";
+    std::shared_ptr<EspLogger> console = nullptr;
+    bool                       isEnabled{ false };
 };

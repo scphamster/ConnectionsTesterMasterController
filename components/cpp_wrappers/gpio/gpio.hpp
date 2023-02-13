@@ -5,6 +5,7 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "utilities.hpp"
 
 // todo: make this class derived, and add abstract pin class
 class Pin {
@@ -16,9 +17,9 @@ class Pin {
         Active,
         Disabled
     };
-    enum class Level {
-        High,
-        Low,
+    enum class Level : bool {
+        Low = false,
+        High = true,
     };
     enum class Direction {
         Input,
@@ -66,6 +67,9 @@ class Pin {
             return Level::Low;
         else
             return Level::High;
+    }
+    void SetLevel(Level new_level) noexcept {
+        gpio_set_level(static_cast<gpio_num_t>(pin_number), ToUnderlying(new_level));
     }
 
   protected:
