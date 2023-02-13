@@ -46,6 +46,9 @@ enum Tasks {
     CommunicatorReadTaskSize      = 6000,
     MainStackSize = 4096,
     MainPrio = 1,
+    CommandManagerStackSize = 4096,
+    CommandManagerPrio = 2,
+
 };
 
 enum class EnableLogForComponent : bool {

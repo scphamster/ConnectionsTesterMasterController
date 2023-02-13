@@ -8,6 +8,7 @@
 class Application {
   public:
     using IPv4 = uint32_t;
+    using Comm = Communicator<MessageToMaster>;
 
     static void Run() noexcept { _this = std::shared_ptr<Application>(new Application()); }
 
@@ -52,38 +53,33 @@ class Application {
         Initialize();
         ConnectWireless();
 
-        auto commandQ = std::make_shared<Queue<MessageFromMaster>>(10);
-        auto writeSB  = std::make_shared<ByteStreamBuffer>(256);
+        auto fromMasterMsgQ = std::make_shared<Queue<MessageFromMaster>>(10);
+        auto toMasterSB     = std::make_shared<ByteStreamBuffer>(256);
 
-        auto communicator =
-          std::make_shared<Communicator<MessageToMaster>>(masterIP, ProjCfg::Socket::EntryPortNumber, writeSB, commandQ);
+        communicator = std::make_shared<Comm>(masterIP, ProjCfg::Socket::EntryPortNumber, toMasterSB, fromMasterMsgQ);
         communicator->run();
 
         auto bluetooth_to_apparatusQ = std::make_shared<Queue<char>>(100, "from bluetooth");
         Bluetooth::Create(Bluetooth::BasisMode::Classic, "esp hamster", bluetooth_to_apparatusQ);
+
         Apparatus::Create(bluetooth_to_apparatusQ, communicator);
         auto apparatus = Apparatus::Get();
 
-        auto msg_to_master =
-          PinConnectivity{ PinConnectivity::PinAffinityAndId{ 37, 1 },
-                           std::vector<PinConnectivity::PinConnectionData>{ PinConnectivity::PinConnectionData{
-                                                                              PinConnectivity::PinAffinityAndId{ 38, 1 },
-                                                                              10,
-                                                                            },
-                                                                            PinConnectivity::PinConnectionData{
-                                                                              PinConnectivity::PinAffinityAndId{ 39, 1 },
-                                                                              100,
-                                                                            } } };
-        auto serialized = msg_to_master.Serialize();
+        commandManagerTask.Start();
+        mainTask.Stop();
+    }
 
-        auto ack = Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize();
-        auto cmd_good = Confirmation(Confirmation::Answer::CommandPerformanceSuccess).Serialize();
+    [[noreturn]] void CommandManagerTask() noexcept
+    {
+        auto from_master_q = communicator->GetFromMasterCommandsQ();
+        auto to_master_sb  = communicator->GetToMasterSB();
 
         while (true) {
-            auto cmd = commandQ->Receive();
-            writeSB->Send(ack);
-            Task::DelayMs(100);
-            writeSB->Send(cmd_good);
+            auto msg = from_master_q->Receive();
+
+
+
+
         }
     }
 
@@ -93,8 +89,14 @@ class Application {
     { }
     static std::shared_ptr<Application> _this;
 
-    SmartLogger console{ "Main", ProjCfg::EnableLogForComponent::Main };
-    Task        mainTask;
-
+    SmartLogger          console{ "Main", ProjCfg::EnableLogForComponent::Main };
+    Task                 mainTask;
+    Task                 commandManagerTask{ [this]() { CommandManagerTask(); },
+                             ProjCfg::Tasks::CommandManagerStackSize,
+                             ProjCfg::Tasks::CommandManagerPrio,
+                             "CommandManager",
+                             true };
     asio::ip::address_v4 masterIP;
+
+    std::shared_ptr<Comm> communicator;
 };

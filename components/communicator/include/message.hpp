@@ -4,6 +4,7 @@
 #include <array>
 
 #include "vector_algorithms.hpp"
+#include "main_apparatus.hpp"
 
 class MessageFromMaster {
   public:
@@ -18,7 +19,7 @@ class MessageFromMaster {
             CheckResistances,
             CheckVoltages,
             CheckRaw,
-            GetAllBoardsIds,
+            GetBoards,
             GetInternalCounter,
             GetTaskStackWatermark,
             SetNewAddressForBoard,
@@ -28,6 +29,11 @@ class MessageFromMaster {
             Unknown
         };
         using Bytes = std::vector<Byte>;
+        class MessageToMaster;
+        class Apparatus;
+        struct Cmd{
+            virtual MessageToMaster Execute(std::shared_ptr<Apparatus> app) noexcept = 0;
+        };
         struct MeasureAll { };
         struct SetVoltageLevel {
             SetVoltageLevel(Byte byte)
@@ -53,6 +59,7 @@ class MessageFromMaster {
             Byte boardAffinity;
             Byte pinNumber;
         };
+        struct GetBoardsInfo { };
         Command(std::vector<Byte> const &bytes)
         {
             auto msg_id = bytes.at(0);
@@ -60,13 +67,14 @@ class MessageFromMaster {
             switch (static_cast<ID>(msg_id)) {
             case ID::MeasureAll: measureAll = MeasureAll(); break;
             case ID::SetOutputVoltageLevel: setVLvl = SetVoltageLevel{ bytes.at(1) }; break;
-
+            case ID::GetBoards: getBoards = GetBoardsInfo{}; break;
             default: break;
             };
         }
 
         MeasureAll      measureAll;
         SetVoltageLevel setVLvl;
+        GetBoardsInfo   getBoards;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -158,4 +166,60 @@ class Confirmation final : MessageToMaster {
   private:
     constexpr static Byte MSG_ID = 51;
     Answer                answer;
+};
+
+class BoardsInfo final : MessageToMaster {
+  public:
+    explicit BoardsInfo(std::vector<Board::AddressT> new_addresses) noexcept
+      : addresses{ std::move(new_addresses) }
+    { }
+
+    std::vector<Byte> Serialize() noexcept final { return addresses; }
+
+  private:
+    std::vector<Board::AddressT> addresses;
+};
+
+class Status final : MessageToMaster {
+  public:
+    enum class StatusValue : Byte {
+        Initializing = 0,
+        Operating,
+    };
+
+    enum class WiFiStatus : Byte {
+        Disabled,
+        Connecting,
+        Connected,
+        FailedAuth,
+        UnknownFail
+    };
+
+    enum class BTStatus : Byte {
+        Disabled,
+        Connecting,
+        Connected,
+        NoConnection,
+        UnknownFail
+    };
+
+    enum class BoardsStatus : Byte {
+        Searching,
+        NoBoardsFound,
+        OldFirmwareBoardFound,
+        AtLeastOneBoardFound,
+        VeryUnhealthyConnection   // if controller reaches failed messages count this flag is set
+    };
+
+    std::vector<Byte> Serialize() noexcept override
+    {
+        return std::vector{ ToUnderlying(status), ToUnderlying(wifi), ToUnderlying(bt), ToUnderlying(boards) };
+    }
+
+  private:
+    auto constexpr static BYTES_SIZE = 4;
+    StatusValue  status{ StatusValue::Initializing };
+    WiFiStatus   wifi{};
+    BTStatus     bt{ BTStatus::Disabled };
+    BoardsStatus boards{ BoardsStatus::Searching };
 };

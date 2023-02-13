@@ -31,8 +31,8 @@ class Communicator {
                  std::shared_ptr<CommandsQ>        cmdQ) noexcept
       : masterIP{ std::move(ip_addr) }
       , currentSocketPort{ port_num }
-      , wSB{ std::move(wQ) }
-      , commandsQ{ std::move(cmdQ) }
+      , toMasterSB{ std::move(wQ) }
+      , fromMasterCommandsQ{ std::move(cmdQ) }
       , writeTask([this]() { WriteTask(); },
                   ProjCfg::Tasks::CommunicatorWriteStackSize,
                   ProjCfg::Tasks::CommunicatorWritePrio,
@@ -82,12 +82,20 @@ class Communicator {
         }
     }
 
+    std::shared_ptr<CommandsQ> GetFromMasterCommandsQ() noexcept {
+        return fromMasterCommandsQ;
+    }
+
+    std::shared_ptr<ByteStreamBuffer> GetToMasterSB() noexcept {
+        return toMasterSB;
+    }
+
   protected:
     [[noreturn]] void WriteTask() noexcept
     {
         asio::error_code err_code;
         while (true) {
-            auto bytes_to_be_sent = wSB->Receive();
+            auto bytes_to_be_sent = toMasterSB->Receive();
 
             if (bytes_to_be_sent == std::nullopt) {
                 console.LogError("message to be sent is unhealthy!");
@@ -128,7 +136,7 @@ class Communicator {
             try {
                 auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
                 console.Log("New successful creation of messageFromMaster!");
-                commandsQ->Send(msg);
+                fromMasterCommandsQ->Send(msg);
             }
             catch(const std::invalid_argument &exception) {
                 console.LogError("Invalid argument exception when creating message from master");
@@ -221,9 +229,9 @@ class Communicator {
     std::shared_ptr<asio::io_context>        io_context;
     std::shared_ptr<asio::ip::tcp::socket>   socket;
     std::shared_ptr<asio::ip::tcp::endpoint> endpoint;
-    std::shared_ptr<ByteStreamBuffer>        wSB;
+    std::shared_ptr<ByteStreamBuffer>        toMasterSB;
 
-    std::shared_ptr<CommandsQ> commandsQ;
+    std::shared_ptr<CommandsQ> fromMasterCommandsQ;
 
     Task writeTask;
     Task readTask;

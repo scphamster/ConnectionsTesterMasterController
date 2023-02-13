@@ -151,13 +151,13 @@ class Board {
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
       , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
       , sequentialRunMutex{ std::move(sequential_run_mutex) }
-      , voltageTableCheckTask([this]() { GetAllPinsVoltagesTask(); },
+      , getAllPinsVoltagesTask([this]() { GetAllPinsVoltagesTask(); },
                               ProjCfg::Tasks::VoltageCheckTaskStackSize,
                               ProjCfg::Tasks::VoltageCheckTaskPio,
                               "board" + std::to_string(board_hw_address),
                               true)
     {
-        voltageTableCheckTask.Start();
+        getAllPinsVoltagesTask.Start();
     }
 
     static PinNumT GetHarnessPinNumFromLogicPinNum(PinNumT logic_pin_num) noexcept
@@ -195,9 +195,9 @@ class Board {
             console.LogError("Voltage setting unsuccessful");
         else {
             switch (value) {
-            case OutputVoltage::_07: outputVoltage = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
-            case OutputVoltage::_09: outputVoltage = ProjCfg::HIGH_OUTPUT_VOLTAGE_VALUE; break;
-            case OutputVoltage::Undefined: outputVoltage = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::_07: outVoltageLevelSetting = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::_09: outVoltageLevelSetting = ProjCfg::HIGH_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::Undefined: outVoltageLevelSetting = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
             }
         }
 
@@ -315,7 +315,7 @@ class Board {
 
         auto voltage            = CalculateVoltageFromAdcValue(adc_value);
         auto circuit_current    = voltage / shunt_resistance;
-        auto overall_resistance = outputVoltage / circuit_current;
+        auto overall_resistance = outVoltageLevelSetting / circuit_current;
         auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance;
         return test_resistance;
     }
@@ -596,11 +596,15 @@ class Board {
     struct CommunicationsConfigs {
         auto constexpr static waitToRepeatAfterBadAckMs = 200;
     };
+
     DataLink                   dataLink;
     SmartLogger                console;
+
     std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
     std::shared_ptr<Mutex>     sequentialRunMutex;
-    Task                       voltageTableCheckTask;
-    OutputVoltageRealT         outputVoltage = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
+
+    Task                       getAllPinsVoltagesTask;
+
+    OutputVoltageRealT         outVoltageLevelSetting = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
 };

@@ -42,6 +42,9 @@ class Task {
 
     void Reset() noexcept
     {
+        if (deleted)
+            return;
+
         Suspend();
         vTaskDelete(taskHandle);
         configASSERT(CreateFreeRTOSTask());
@@ -49,7 +52,7 @@ class Task {
 
     [[noreturn]] void Run() noexcept
     {
-        if (not functor)
+        if ((not functor) or deleted)
             TaskFunctorIsNullHook();
 
         functor();
@@ -59,21 +62,22 @@ class Task {
     }
     void Start() noexcept
     {
-        if (hasBeenStarted)
+        if (hasBeenStarted or deleted)
             return;
 
         configASSERT(CreateFreeRTOSTask());
     }
+    void Stop() noexcept { DeleteTask(); }
     void Suspend() noexcept
     {
-        if (not functor)
+        if ((not functor) or deleted)
             TaskFunctorIsNullHook();
 
         vTaskSuspend(taskHandle);
     }
     void Resume() noexcept
     {
-        if (not functor)
+        if ((not functor) or deleted)
             TaskFunctorIsNullHook();
 
         vTaskResume(taskHandle);
@@ -89,11 +93,12 @@ class Task {
     static void SuspendAll() noexcept { vTaskSuspendAll(); }
     static void ResumeAll() noexcept { xTaskResumeAll(); }
 
-    static UBaseType_t GetStackWatermarkOfThisTask() noexcept {
-        return uxTaskGetStackHighWaterMark(nullptr);
-    }
+    static UBaseType_t GetStackWatermarkOfThisTask() noexcept { return uxTaskGetStackHighWaterMark(nullptr); }
 
-    UBaseType_t GetStackWatermark() noexcept {
+    UBaseType_t GetStackWatermark() noexcept
+    {
+        if (deleted)
+            return 1;
         return uxTaskGetStackHighWaterMark(taskHandle);
     }
 
@@ -112,8 +117,10 @@ class Task {
     }
     void DeleteTask() noexcept
     {
-        if (taskHandle != nullptr)
+        if (taskHandle != nullptr) {
             vTaskDelete(taskHandle);
+            deleted = true;
+        }
     }
 
   private:
@@ -125,4 +132,5 @@ class Task {
     size_t      priority;
     CoreNumT    core;
     bool        hasBeenStarted{ false };
+    bool        deleted{ false };
 };

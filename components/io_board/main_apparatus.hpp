@@ -68,6 +68,14 @@ class Apparatus {
 
     void Init() noexcept { FindAllConnectedBoards(); }
 
+    //new
+
+    std::vector<std::shared_ptr<Board>> GetBoards() noexcept {
+        return ioBoards;
+    }
+
+    //end new
+
     void FindAllConnectedBoards() noexcept
     {
         auto constexpr start_address = 0x01;
@@ -321,7 +329,6 @@ class Apparatus {
 
         FindConnectionsForPinAtBoard(pin, *board, analysis_type, sequential);
     }
-    // todo change name
     void GetBoardCounter(BoardAddrT board_addr)
     {
         auto board = FindBoardWithAddress(board_addr);
