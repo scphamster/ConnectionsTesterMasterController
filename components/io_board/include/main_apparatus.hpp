@@ -2,10 +2,9 @@
 #include <memory>
 #include <vector>
 
-#include "project_configs.hpp"
 #include "board_controller.hpp"
 #include "data_link.hpp"
-#include "esp_logger.hpp"
+//#include "esp_logger.hpp"
 #include "iic.hpp"
 #include "task.hpp"
 #include "queue.hpp"
@@ -13,14 +12,16 @@
 #include "bluetooth.hpp"
 #include "string_parser.hpp"
 #include "gpio.hpp"
-#include "master/cmd_interpreter.hpp"
+#include "cmd_interpreter.hpp"
 #include "communicator.hpp"
+//#include "measurement_structures.hpp"
+//#include "communicator_concept.hpp"
 
 class Apparatus {
   public:
     using Byte               = uint8_t;
     using BoardAddrT         = Byte;
-    using PinsVoltages       = Board::PinsVoltages;
+    using PinsVoltages       = Board::OneBoardVoltages;
     using OutputVoltageLevel = Board::OutputVoltage;
     using QueueT             = Queue<PinsVoltages>;
     using PinNumT            = Board::PinNumT;
@@ -30,7 +31,7 @@ class Apparatus {
     using CommResult         = Board::Result;
     using CommandCatcher     = CommandInterpreter<Bluetooth>;
     using UserCommand        = typename CommandCatcher::UserCommand;
-    using CommunicatorT = Communicator<MessageToMaster>;
+    using CommunicatorT      = Communicator<MessageToMaster>;
 
     void static Create(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<CommunicatorT> socket) noexcept
     {
@@ -49,6 +50,14 @@ class Apparatus {
         return _this;
     }
 
+    // new
+
+    std::vector<std::shared_ptr<Board>> GetBoards() noexcept { return ioBoards; }
+//    AllBoardsVoltages MeasureAll() noexcept {
+//
+//    }
+    // end new
+
   protected:
     enum class ConnectionAnalysis {
         SimpleBoolean,
@@ -61,20 +70,13 @@ class Apparatus {
             DisableAll = 254
         };
     };
+
     struct PinOnBoard {
         int boardAffinity = -1;
         int idxOnBoard    = -1;
     };
 
     void Init() noexcept { FindAllConnectedBoards(); }
-
-    //new
-
-    std::vector<std::shared_ptr<Board>> GetBoards() noexcept {
-        return ioBoards;
-    }
-
-    //end new
 
     void FindAllConnectedBoards() noexcept
     {
@@ -189,7 +191,7 @@ class Apparatus {
 
         Task::DelayMs(ProjCfg::BoardsConfigs::DelayAfterPinVoltageSetMs);
 
-        auto voltage_tables_from_all_boards = MeasureAll(sequential);
+        auto voltage_tables_from_all_boards = GetAllVoltages(sequential);
         if (board->DisableOutput(ProjCfg::BoardsConfigs::DisableOutputRetryTimes) != CommResult::Good) {
             console.LogError("Disable output unsuccessful");
             return false;
@@ -264,6 +266,25 @@ class Apparatus {
 
         return true;
     }
+    void FindConnectionsForPinAtBoard(PinNumT            pin,
+                                      BoardAddrT         board_address,
+                                      ConnectionAnalysis analysis_type,
+                                      bool               sequential)
+    {
+        if (pin > Board::pinCount) {
+            console.LogError("requested pin number is higher than pin count at one board, requested pin: " +
+                             std::to_string(pin));
+            return;
+        }
+
+        auto board = FindBoardWithAddress(board_address);
+        if (not board) {
+            console.LogError("Board with address: " + std::to_string(board_address) + " not found");
+            return;
+        }
+
+        FindConnectionsForPinAtBoard(pin, *board, analysis_type, sequential);
+    }
     void FindAndAnalyzeAllConnectionsForBoard(std::shared_ptr<Board> board,
                                               ConnectionAnalysis     analysis_type,
                                               bool                   sequential)
@@ -310,25 +331,6 @@ class Apparatus {
             FindAndAnalyzeAllConnectionsForBoard(board, analysis_type, sequential);
         }
     }
-    void FindConnectionsAtBoardForPin(BoardAddrT         board_address,
-                                      PinNumT            pin,
-                                      ConnectionAnalysis analysis_type,
-                                      bool               sequential)
-    {
-        if (pin > Board::pinCount) {
-            console.LogError("requested pin number is higher than pin count at one board, requested pin: " +
-                             std::to_string(pin));
-            return;
-        }
-
-        auto board = FindBoardWithAddress(board_address);
-        if (not board) {
-            console.LogError("Board with address: " + std::to_string(board_address) + " not found");
-            return;
-        }
-
-        FindConnectionsForPinAtBoard(pin, *board, analysis_type, sequential);
-    }
     void GetBoardCounter(BoardAddrT board_addr)
     {
         auto board = FindBoardWithAddress(board_addr);
@@ -349,7 +351,7 @@ class Apparatus {
         bluetooth->Write(response_string);
         console.Log(response_string);
     }
-    std::optional<std::vector<PinsVoltages>> MeasureAll(bool sequential) noexcept
+    std::optional<std::vector<PinsVoltages>> GetAllVoltages(bool sequential) noexcept
     {
         pinsVoltagesResultsQ->Flush();
         StartVoltageMeasurementOnAllBoards(sequential);
@@ -376,6 +378,7 @@ class Apparatus {
 
         return all_boards_voltages;
     }
+
     void GetInternalParametersForBoard(BoardAddrT board_addr) noexcept
     {
         auto board = FindBoardWithAddress(board_addr);
@@ -577,8 +580,8 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0),
-                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 args.at(0),
                                                  ConnectionAnalysis::SimpleBoolean,
                                                  true);
                 }
@@ -589,8 +592,8 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0),
-                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 args.at(0),
                                                  ConnectionAnalysis::Voltage,
                                                  true);
                 }
@@ -601,8 +604,8 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0),
-                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 args.at(0),
                                                  ConnectionAnalysis::Resistance,
                                                  true);
                 }
@@ -613,8 +616,8 @@ class Apparatus {
                 else if (args.size() == 1)
                     FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true);
                 else {
-                    FindConnectionsAtBoardForPin(args.at(0),
-                                                 Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
+                                                 args.at(0),
                                                  ConnectionAnalysis::Raw,
                                                  true);
                 }
@@ -738,7 +741,7 @@ class Apparatus {
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
-    CommandCatcher                commandCatcher;
+    CommandCatcher                 commandCatcher;
     std::shared_ptr<CommunicatorT> socket;
 
     Pin testPin{ 26, Pin::Direction::Output };

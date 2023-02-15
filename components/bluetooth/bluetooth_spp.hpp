@@ -15,7 +15,8 @@
 #include "esp_logger.hpp"
 #include "task.hpp"
 #include "queue.hpp"
-#include "project_configs.hpp"
+#include "my_mutex.hpp"
+#include "../proj_cfg/project_configs.hpp"
 
 #include "bluetooth_gap.hpp"
 

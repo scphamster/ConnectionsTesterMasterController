@@ -1,16 +1,6 @@
-#include "nvs_flash.h"
-
-#include "task.hpp"
-#include "bluetooth.hpp"
-#include "protocol_examples_common.h"
-
-#include "main_apparatus.hpp"
-#include "communicator.hpp"
-
-#include "message.hpp"
-#include "esp_wifi.h"
-
+#include <memory>
 #include "application.hpp"
+#include <protocol_examples_common.h>
 
 std::shared_ptr<Application> Application::_this = nullptr;
 

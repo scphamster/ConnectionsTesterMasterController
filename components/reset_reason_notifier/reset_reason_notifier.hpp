@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esp_logger.hpp"
+
 class ResetReasonNotifier {
   public:
     enum class RR {

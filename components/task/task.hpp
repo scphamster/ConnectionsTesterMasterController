@@ -1,8 +1,10 @@
 #pragma once
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
 #include <functional>
 #include <string>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 extern "C" void   TaskCppTaskWrapper(void *);
 [[noreturn]] void TaskLoopBreachHook(TaskHandle_t task, std::string name);

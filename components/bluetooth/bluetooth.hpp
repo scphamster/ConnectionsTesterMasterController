@@ -13,7 +13,7 @@
 #include "esp_logger.hpp"
 #include "task.hpp"
 #include "queue.hpp"
-#include "project_configs.hpp"
+#include "../proj_cfg/project_configs.hpp"
 
 // todo: headers to be deleted after refactoring:
 #include "esp_log.h"

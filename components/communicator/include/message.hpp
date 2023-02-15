@@ -4,7 +4,6 @@
 #include <array>
 
 #include "vector_algorithms.hpp"
-#include "main_apparatus.hpp"
 
 class MessageFromMaster {
   public:
@@ -29,11 +28,6 @@ class MessageFromMaster {
             Unknown
         };
         using Bytes = std::vector<Byte>;
-        class MessageToMaster;
-        class Apparatus;
-        struct Cmd{
-            virtual MessageToMaster Execute(std::shared_ptr<Apparatus> app) noexcept = 0;
-        };
         struct MeasureAll { };
         struct SetVoltageLevel {
             SetVoltageLevel(Byte byte)
@@ -82,6 +76,8 @@ class MessageFromMaster {
       , commandID{ bytes.at(0) }
     { }
 
+    Command::ID GetCommandID() const noexcept { return commandID; }
+
   private:
     Command     cmd;
     Command::ID commandID{};
@@ -95,7 +91,6 @@ class MessageToMaster {
 
     virtual std::vector<Byte> Serialize() noexcept = 0;
 };
-
 class PinConnectivity final : MessageToMaster {
   public:
     struct PinAffinityAndId {
@@ -170,9 +165,14 @@ class Confirmation final : MessageToMaster {
 
 class BoardsInfo final : MessageToMaster {
   public:
-    explicit BoardsInfo(std::vector<Board::AddressT> new_addresses) noexcept
-      : addresses{ std::move(new_addresses) }
-    { }
+    explicit BoardsInfo(std::vector<std::shared_ptr<Board>> connected_boards) noexcept
+    {
+        addresses.reserve(connected_boards.size());
+        std::transform(connected_boards.begin(),
+                       connected_boards.end(),
+                       std::back_inserter(addresses),
+                       [](auto const &board) { return board->GetAddress(); });
+    }
 
     std::vector<Byte> Serialize() noexcept final { return addresses; }
 

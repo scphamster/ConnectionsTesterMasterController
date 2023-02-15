@@ -5,10 +5,9 @@
 #include <esp_wifi.h>
 
 #include "asio.hpp"
-#include "project_configs.hpp"
+#include "../../proj_cfg/project_configs.hpp"
 #include "esp_logger.hpp"
 #include "task.hpp"
-#include "wifi.hpp"
 #include "queue.hpp"
 #include "message.hpp"
 

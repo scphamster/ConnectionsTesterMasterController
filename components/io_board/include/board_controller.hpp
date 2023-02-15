@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "data_link.hpp"
+
 #include "queue.hpp"
 #include "task.hpp"
 #include "semaphore.hpp"
@@ -44,12 +45,12 @@ class Board {
         BoardAnsweredFail
     };
 
-    struct PinsVoltages {
+    struct OneBoardVoltages {
         Result            readResult;
         AddressT          boardAddress;
         AllPinsVoltages8B voltagesArray;
     };
-    using VoltagesQ = Queue<PinsVoltages>;
+    using VoltagesQ = Queue<OneBoardVoltages>;
     enum class Command {
         SetPinVoltage      = 0xC1,
         GetInternalCounter = 0xC2,
@@ -550,7 +551,7 @@ class Board {
 
                 if (comm_result != Result::Good) {
                     allPinsVoltagesTableQueue->Send(
-                      PinsVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
+                      OneBoardVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
 
                     sequentialRunMutex->unlock();
                     continue;
@@ -581,7 +582,7 @@ class Board {
                 }
 
                 operation_result = Result::Good;
-                allPinsVoltagesTableQueue->Send(PinsVoltages{ operation_result, dataLink.GetAddress(), *voltages });
+                allPinsVoltagesTableQueue->Send(OneBoardVoltages{ operation_result, dataLink.GetAddress(), *voltages });
                 sequentialRunMutex->unlock();
             }
         }

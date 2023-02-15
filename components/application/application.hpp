@@ -1,9 +1,21 @@
 #pragma once
 #include <memory>
+#include <nvs_flash.h>
+#include <protocol_examples_common.h>
+
+#include "asio.hpp"
 
 #include "task.hpp"
-#include "reset_reason_notifier.hpp"
+#include "queue.hpp"
+
+#include "../proj_cfg/project_configs.hpp"
 #include "esp_logger.hpp"
+#include "bluetooth.hpp"
+
+#include "reset_reason_notifier.hpp"
+#include "main_apparatus.hpp"
+#include "board_controller.hpp"
+#include "message.hpp"
 
 class Application {
   public:
@@ -63,10 +75,14 @@ class Application {
         Bluetooth::Create(Bluetooth::BasisMode::Classic, "esp hamster", bluetooth_to_apparatusQ);
 
         Apparatus::Create(bluetooth_to_apparatusQ, communicator);
-        auto apparatus = Apparatus::Get();
+        apparatus = Apparatus::Get();
 
         commandManagerTask.Start();
         mainTask.Stop();
+
+        while(true) {
+            Task::DelayMs(500);
+        }
     }
 
     [[noreturn]] void CommandManagerTask() noexcept
@@ -76,10 +92,25 @@ class Application {
 
         while (true) {
             auto msg = from_master_q->Receive();
+            if (msg == std::nullopt) {
+                console.LogError("CMT: Message arrived is null");
+                continue;
+            }
+
+            using ID    = MessageFromMaster::Command::ID;
+            auto cmd_id = msg->GetCommandID();
+            switch (cmd_id) {
+            case ID::GetBoards:
+                to_master_sb->Send(Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize());
+                to_master_sb->Send(BoardsInfo(apparatus->GetBoards()).Serialize());
+                console.Log("CMT: response with boards sent!");
+                break;
+
+            case ID::MeasureAll:
 
 
-
-
+            default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
+            }
         }
     }
 
@@ -98,5 +129,6 @@ class Application {
                              true };
     asio::ip::address_v4 masterIP;
 
-    std::shared_ptr<Comm> communicator;
+    std::shared_ptr<Comm>      communicator;
+    std::shared_ptr<Apparatus> apparatus;
 };
