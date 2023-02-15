@@ -15,6 +15,7 @@ set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/common_components/protocol_exam
 #message("mydebug: PATH is " $ENV{PATH})
 
 set(CXX_COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast -fexceptions")
+set(CXX_COMPILE_OPTIONS -Wall -fconcepts -std=c++2a -Ofast -fexceptions)
 set(C_COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")
 
 

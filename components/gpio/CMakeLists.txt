@@ -6,4 +6,6 @@ set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
 idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES}
                        REQUIRES tools)
 
-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
+target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
+)
+

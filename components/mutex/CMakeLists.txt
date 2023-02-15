@@ -5,4 +5,10 @@ set(INCLUDES .)
 
 idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES})
 
-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
+#if (not DEFINED CXX_COMPILE_OPTIONS)
+#    message(FATAL_ERROR "No compile options set for component: ${COMPONENT_LIB}")
+#endif ()
+
+target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
+)
+
