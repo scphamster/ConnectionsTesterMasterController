@@ -4,7 +4,7 @@
 
 #include "board_controller.hpp"
 #include "data_link.hpp"
-//#include "esp_logger.hpp"
+// #include "esp_logger.hpp"
 #include "iic.hpp"
 #include "task.hpp"
 #include "queue.hpp"
@@ -14,16 +14,16 @@
 #include "gpio.hpp"
 #include "cmd_interpreter.hpp"
 #include "communicator.hpp"
-//#include "measurement_structures.hpp"
-//#include "communicator_concept.hpp"
+// #include "measurement_structures.hpp"
+// #include "communicator_concept.hpp"
 
 class Apparatus {
   public:
     using Byte               = uint8_t;
     using BoardAddrT         = Byte;
-    using PinsVoltages       = Board::OneBoardVoltages;
+    using OneBoardVoltages   = Board::OneBoardVoltages;
     using OutputVoltageLevel = Board::OutputVoltage;
-    using QueueT             = Queue<PinsVoltages>;
+    using QueueT             = Queue<OneBoardVoltages>;
     using PinNumT            = Board::PinNumT;
     using CircuitParamT      = float;
     using VoltageT           = CircuitParamT;
@@ -51,12 +51,69 @@ class Apparatus {
     }
 
     // new
+    bool                                    BoardsHaveBeenChecked() const noexcept { return boardsChecked; }
+    std::optional<std::vector<Board::Info>> GetBoards() noexcept
+    {
+        if (ioBoards.empty())
+            return std::vector<Board::Info>();
 
-    std::vector<std::shared_ptr<Board>> GetBoards() noexcept { return ioBoards; }
-//    AllBoardsVoltages MeasureAll() noexcept {
-//
-//    }
-    // end new
+        std::vector<Board::Info> v;
+        v.reserve(ioBoards.size());
+
+        for (const auto &board : ioBoards) {
+            auto internals = board->GetInternalParameters(ProjCfg::Retry::CommandSendRetryNumber);
+
+            if (internals.second == std::nullopt) {
+                console.LogError("Unsuccessful internal parameters retrieval for board " +
+                                 std::to_string(board->GetAddress()));
+                return std::nullopt;
+            }
+
+            if (internals.second->outputResistance1 == UINT16_MAX) {
+                console.LogError("Board with address " + std::to_string(board->GetAddress()) +
+                                 " has not set internal parameters!");
+
+                internals.second->outputResistance1 = Board::GetInternalParametersCmd::STD_OUT_R;
+                internals.second->outputResistance2 = Board::GetInternalParametersCmd::STD_OUT_R;
+                internals.second->inputResistance1  = Board::GetInternalParametersCmd::STD_IN_R;
+                internals.second->inputResistance2  = Board::GetInternalParametersCmd::STD_IN_R;
+                internals.second->shuntResistance   = Board::GetInternalParametersCmd::STD_SHUNT_R;
+                internals.second->outputVoltageLow  = Board::GetInternalParametersCmd::STD_LOW_OUT_V;
+                internals.second->outputVoltageHigh = Board::GetInternalParametersCmd::STD_HIGH_OUT_V;
+            }
+
+            v.emplace_back(Board::Info{ *internals.second,
+                                        board->GetAddress(),
+                                        Board::GetFirmwareVersion::targetVersion,
+                                        board->GetOutputVoltageLevel(),
+                                        board->IsHealthy() });
+        }
+
+        return v;
+    }
+    std::optional<AllBoardsVoltages> MeasureAll() noexcept
+    {
+        auto voltages = GetAllVoltages(true);
+        if (voltages == std::nullopt) {
+            for (int retry_counter = 0; retry_counter < ProjCfg::Retry::GetAllVoltagesRetryTimes; retry_counter++) {
+                voltages = GetAllVoltages(true);
+
+                if (voltages != std::nullopt)
+                    break;
+            }
+        }
+
+        if (voltages == std::nullopt) {
+            console.LogError("Get all voltages command failed with " +
+                             std::to_string(ProjCfg::Retry::GetAllVoltagesRetryTimes) + " retry number");
+
+            return std::nullopt;
+        }
+
+        return AllBoardsVoltages(std::move(*voltages));
+    }
+    void CheckConnections() noexcept { FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true); }
+    //     end new
 
   protected:
     enum class ConnectionAnalysis {
@@ -85,7 +142,7 @@ class Apparatus {
 
         ioBoards.clear();
 
-        Task::DelayMs(500);
+        Task::DelayMs(100);
 
         auto seq_mutex = std::make_shared<Mutex>();
 
@@ -108,11 +165,10 @@ class Apparatus {
 
         int board_counter = 0;
         for (auto const &board : ioBoards) {
-            auto [comm_result, counter_value] =
-              board->GetBoardCounterValue(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
-            board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            auto [comm_result, counter_value] = board->GetBoardCounterValue(ProjCfg::Retry::CommandSendRetryNumber);
+            board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::Retry::CommandSendRetryNumber);
 
-            auto result = board->CheckIfFirmwareVersionIsCompliant(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            auto result = board->CheckIfFirmwareVersionIsCompliant(ProjCfg::Retry::CommandSendRetryNumber);
             if (result.first == CommResult::BadCommunication) {
                 console.LogError("Board with address " + std::to_string(board->GetAddress()) +
                                  " has problems with communication!");
@@ -133,6 +189,8 @@ class Apparatus {
 
             board_counter++;
         }
+
+        boardsChecked = true;
     }
     void SendAllBoardsIds() noexcept
     {
@@ -167,11 +225,11 @@ class Apparatus {
     {
         for (auto const &board : ioBoards) {
             console.Log("Setting voltage level");
-            auto result = board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            auto result = board->SetOutputVoltageValue(level, ProjCfg::Retry::CommandSendRetryNumber);
 
             if (result != CommResult::Good) {
                 Task::DelayMs(100);
-                board->SetOutputVoltageValue(level, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+                board->SetOutputVoltageValue(level, ProjCfg::Retry::CommandSendRetryNumber);
             }
 
             Task::DelayMs(10);
@@ -183,7 +241,7 @@ class Apparatus {
                                       ConnectionAnalysis     analysis_type,
                                       bool                   sequential)
     {
-        auto result = board->SetVoltageAtPin(pin, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        auto result = board->SetVoltageAtPin(pin, ProjCfg::Retry::CommandSendRetryNumber);
         if (result != CommResult::Good) {
             console.LogError("Setting pin voltage unsuccessful");
             return false;
@@ -218,11 +276,18 @@ class Apparatus {
         std::string answer_to_master = response_header + ' ' + std::to_string(board->GetAddress()) + ':' +
                                        std::to_string(Board::GetHarnessPinNumFromLogicPinNum(pin)) + " -> ";
 
+        using ConnectionData = PinConnectivity::PinConnectionData;
+        using PinDescriptor  = PinConnectivity::PinAffinityAndId;
+
+        auto master_pin =
+          PinDescriptor{ board->GetAddress(), static_cast<Byte>(Board::GetHarnessPinNumFromLogicPinNum(pin)) };
+        std::vector<ConnectionData> cons{};
+
         for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
             std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
 
             auto pin_counter = 0;
-            for (auto voltage : voltage_table_from_board.voltagesArray) {
+            for (auto voltage : voltage_table_from_board.pinsVoltages) {
                 auto harness_pin_id = Board::GetHarnessPinNumFromLogicPinNum(pin_counter);
 
                 if (pin == pin_counter and board->GetAddress() == voltage_table_from_board.boardAddress) {
@@ -251,6 +316,10 @@ class Apparatus {
                         answer_to_master.append(board_affinity + ':' + std::to_string(harness_pin_id) + '(' +
                                                 std::to_string(voltage) + ") ");
                     }
+
+                    cons.emplace_back(ConnectionData{
+                      PinDescriptor{ voltage_table_from_board.boardAddress, static_cast<Byte>(harness_pin_id) },
+                      voltage });
                 }
 
                 pin_counter++;
@@ -261,7 +330,7 @@ class Apparatus {
 
         console.Log(answer_to_master);
         bluetooth->Write(answer_to_master);
-
+        socket->GetToMasterSB()->Send(PinConnectivity(std::move(master_pin), std::move(cons)).Serialize());
         //        Task::DelayMs(3);
 
         return true;
@@ -324,7 +393,7 @@ class Apparatus {
         console.Log("Executing command: FindAndAnalyzeAllConnections");
 
         for (auto board : ioBoards) {
-            board->DisableOutput(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+            board->DisableOutput(ProjCfg::Retry::CommandSendRetryNumber);
         }
 
         for (auto board : ioBoards) {
@@ -339,8 +408,7 @@ class Apparatus {
             return;
         }
 
-        auto [comm_result, counter_value] =
-          (*board)->GetBoardCounterValue(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        auto [comm_result, counter_value] = (*board)->GetBoardCounterValue(ProjCfg::Retry::CommandSendRetryNumber);
         std::string response_string;
 
         if (comm_result == CommResult::Good) {
@@ -351,14 +419,12 @@ class Apparatus {
         bluetooth->Write(response_string);
         console.Log(response_string);
     }
-    std::optional<std::vector<PinsVoltages>> GetAllVoltages(bool sequential) noexcept
+    std::optional<std::vector<OneBoardVoltages>> GetAllVoltages(bool sequential) noexcept
     {
         pinsVoltagesResultsQ->Flush();
         StartVoltageMeasurementOnAllBoards(sequential);
 
-        std::vector<PinsVoltages> all_boards_voltages;
-
-        for (auto const &board : ioBoards) { }
+        std::vector<OneBoardVoltages> all_boards_voltages;
 
         for (auto board = 0; board < ioBoards.size(); board++) {
             auto voltage_table = pinsVoltagesResultsQ->Receive(pdMS_TO_TICKS(ProjCfg::TimeoutMs::VoltagesQueueReceive));
@@ -388,7 +454,7 @@ class Apparatus {
             return;
         }
 
-        auto result = (*board)->GetInternalParameters(ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+        auto result = (*board)->GetInternalParameters(ProjCfg::Retry::CommandSendRetryNumber);
         if (result.first != CommResult::Good)
             return;
 
@@ -554,13 +620,13 @@ class Apparatus {
             Task::DelayMs(100);
         }
     }
-    void PrintAllVoltagesFromTable(std::vector<PinsVoltages> const &voltages_tables) noexcept
+    void PrintAllVoltagesFromTable(std::vector<OneBoardVoltages> const &voltages_tables) noexcept
     {
         for (auto const &table : voltages_tables) {
             console.Log("table for board: " + std::to_string(table.boardAddress));
 
             auto pin_counter = 0;
-            for (auto pin_voltage : table.voltagesArray) {
+            for (auto pin_voltage : table.pinsVoltages) {
                 console.Log("   pin:" + std::to_string(pin_counter) + " v=" + std::to_string(pin_voltage));
                 pin_counter++;
             }
@@ -698,7 +764,7 @@ class Apparatus {
                         static_cast<InternalParamT>(args.at(6))
                     };
 
-                    ioBoards.at(0)->SetInternalParameters(internals_args, ProjCfg::BoardsConfigs::CommandSendRetryNumber);
+                    ioBoards.at(0)->SetInternalParameters(internals_args, ProjCfg::Retry::CommandSendRetryNumber);
                 }
                 break;
 
@@ -726,7 +792,6 @@ class Apparatus {
                     ProjCfg::BoardsConfigs::SCL_Pin,
                     ProjCfg::BoardsConfigs::IICSpeedHz);
         i2c = IIC::Get();
-        testPin.SetLevel(Pin::Level::Low);
         Init();
 
         measurementsTask.Start();
@@ -744,8 +809,8 @@ class Apparatus {
     CommandCatcher                 commandCatcher;
     std::shared_ptr<CommunicatorT> socket;
 
-    Pin testPin{ 26, Pin::Direction::Output };
-
     std::shared_ptr<Bluetooth> bluetooth;
     Task                       measurementsTask;
+
+    bool boardsChecked{ false };
 };

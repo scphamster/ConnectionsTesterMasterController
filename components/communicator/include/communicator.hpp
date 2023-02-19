@@ -14,11 +14,9 @@
 template<typename MessageToMasterT>
 class Communicator {
   public:
-    using PortNumT  = unsigned short;
-    using WQ        = Queue<MessageToMasterT>;
-    using RQ        = Queue<MessageFromMaster>;
-    using Byte      = uint8_t;
-    using CommandsQ = Queue<MessageFromMaster>;
+    using PortNumT    = unsigned short;
+    using Byte        = uint8_t;
+    using FromMasterQ = Queue<MessageFromMaster>;
 
     enum MessageType {
         Confirmation = 1
@@ -26,12 +24,12 @@ class Communicator {
 
     Communicator(asio::ip::address_v4              ip_addr,
                  PortNumT                          port_num,
-                 std::shared_ptr<ByteStreamBuffer> wQ,
-                 std::shared_ptr<CommandsQ>        cmdQ) noexcept
+                 std::shared_ptr<ByteStreamBuffer> toMasterSB,
+                 std::shared_ptr<FromMasterQ>      fromMasterQ) noexcept
       : masterIP{ std::move(ip_addr) }
       , currentSocketPort{ port_num }
-      , toMasterSB{ std::move(wQ) }
-      , fromMasterCommandsQ{ std::move(cmdQ) }
+      , toMasterSB{ std::move(toMasterSB) }
+      , fromMasterCommandsQ{ std::move(fromMasterQ) }
       , writeTask([this]() { WriteTask(); },
                   ProjCfg::Tasks::CommunicatorWriteStackSize,
                   ProjCfg::Tasks::CommunicatorWritePrio,
@@ -81,13 +79,12 @@ class Communicator {
         }
     }
 
-    std::shared_ptr<CommandsQ> GetFromMasterCommandsQ() noexcept {
-        return fromMasterCommandsQ;
-    }
+    std::shared_ptr<FromMasterQ> GetFromMasterCommandsQ() noexcept { return fromMasterCommandsQ; }
 
-    std::shared_ptr<ByteStreamBuffer> GetToMasterSB() noexcept {
-        return toMasterSB;
-    }
+    std::shared_ptr<ByteStreamBuffer> GetToMasterSB() noexcept { return toMasterSB; }
+
+    void SetImmediateAutoResponse(CommandStatus &&response) noexcept { *immediateAutoResponse = std::move(response); }
+    void UnsetNotInitializedFlagResponse() noexcept { immediateAutoResponse = std::nullopt; }
 
   protected:
     [[noreturn]] void WriteTask() noexcept
@@ -116,14 +113,14 @@ class Communicator {
             if (err_code)
                 console.OnFatalErrorTermination("error reading message size!" + err_code.message());
 
-            auto message_size      = message_size_buffer;
-            auto real_message_size = asio::read(*socket,
-                                                asio::buffer(main_buffer.data(), main_buffer.size()),
-                                                asio::transfer_exactly(message_size),
-                                                err_code);
+            auto message_size   = message_size_buffer;
+            auto bytes_read_num = asio::read(*socket,
+                                             asio::buffer(main_buffer.data(), main_buffer.size()),
+                                             asio::transfer_exactly(message_size),
+                                             err_code);
 
-            if (message_size != real_message_size) {
-                console.LogError("Message size is " + std::to_string(real_message_size) +
+            if (message_size != bytes_read_num) {
+                console.LogError("Message size is " + std::to_string(bytes_read_num) +
                                  " and is different from expected: " + std::to_string(message_size));
                 continue;
             }
@@ -133,18 +130,21 @@ class Communicator {
             }
 
             try {
+                if (immediateAutoResponse) {
+                    console.Log("Answering \"Im Initializing\" to master!");
+                    toMasterSB->Send(immediateAutoResponse->Serialize(), pdMS_TO_TICKS(100));
+                    continue;
+                }
+
                 auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
                 console.Log("New successful creation of messageFromMaster!");
                 fromMasterCommandsQ->Send(msg);
-            }
-            catch(const std::invalid_argument &exception) {
+            } catch (const std::invalid_argument &exception) {
                 console.LogError("Invalid argument exception when creating message from master");
-            }
-            catch(...){
+            } catch (...) {
                 console.LogError("Unknown error when creating MessageFromMaster");
                 continue;
             }
-
         }
     }
 
@@ -155,6 +155,7 @@ class Communicator {
 
         while (true) {
             try {
+                console.Log("Connecting to standard port: " + std::to_string(currentSocketPort));
                 socket->connect(*endpoint, err_code);
             } catch (asio::system_error &err) {
                 console.LogError("Error during port obtainment: " + std::string(err.what()));
@@ -191,10 +192,6 @@ class Communicator {
 
         asio::read(*socket, asio::buffer(buffer.data(), buffer.size()), asio::transfer_exactly(sizeof(int)), ec);
 
-        //        for (auto const &byte : buffer) {
-        //            console.Log("Byte : " + std::to_string(byte));
-        //        }
-
         if (ec) {
             console.LogError("Reception error: " + ec.message());
             return { std::nullopt, ec };
@@ -230,10 +227,12 @@ class Communicator {
     std::shared_ptr<asio::ip::tcp::endpoint> endpoint;
     std::shared_ptr<ByteStreamBuffer>        toMasterSB;
 
-    std::shared_ptr<CommandsQ> fromMasterCommandsQ;
+    std::shared_ptr<FromMasterQ> fromMasterCommandsQ;
 
     Task writeTask;
     Task readTask;
+
+    std::optional<CommandStatus> immediateAutoResponse{CommandStatus(CommandStatus::Answer::DeviceIsInitializing)};
 
     bool socketIsConnected = false;
 };

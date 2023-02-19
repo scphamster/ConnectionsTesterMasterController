@@ -10,7 +10,7 @@
 #include "semaphore.hpp"
 #include "utilities.hpp"
 #include "my_mutex.hpp"
-// todo: implement internal timer to not bother user about delays
+
 class Board {
   public:
     auto static constexpr pinCount = ProjCfg::BoardsConfigs::NumberOfPins;
@@ -48,7 +48,7 @@ class Board {
     struct OneBoardVoltages {
         Result            readResult;
         AddressT          boardAddress;
-        AllPinsVoltages8B voltagesArray;
+        AllPinsVoltages8B pinsVoltages;
     };
     using VoltagesQ = Queue<OneBoardVoltages>;
     enum class Command {
@@ -63,7 +63,7 @@ class Board {
         REPEAT_CMD_TO_CONFIRM = 0xAF,
         FAIL                  = 0x50
     };
-    enum class OutputVoltage : uint8_t {
+    enum class OutputVoltage : Byte {
         Undefined = 0,
         _09       = ProjCfg::high_voltage_reference_select_pin,
         _07       = ProjCfg::low_voltage_reference_select_pin,
@@ -135,17 +135,33 @@ class Board {
     struct GetInternalParametersCmd {
         Byte static constexpr cmd                = 0xc9;
         auto static constexpr delayForResponseMs = 200;
+        using InternalParamT = SetInternalParametersCmd::InternalParamT;
+        constexpr static InternalParamT STD_OUT_R = 1100;
+        constexpr static InternalParamT STD_IN_R = 210;
+        constexpr static InternalParamT STD_SHUNT_R = 330;
+        constexpr static InternalParamT STD_LOW_OUT_V = 700;
+        constexpr static InternalParamT STD_HIGH_OUT_V = 900;
+
 
         struct InternalParamsT {
-            SetInternalParametersCmd::InternalParamT outputResistance1;
-            SetInternalParametersCmd::InternalParamT inputResistance1;
-            SetInternalParametersCmd::InternalParamT outputResistance2;
-            SetInternalParametersCmd::InternalParamT inputResistance2;
-            SetInternalParametersCmd::InternalParamT shuntResistance;
-            SetInternalParametersCmd::InternalParamT outputVoltageLow;
-            SetInternalParametersCmd::InternalParamT outputVoltageHigh;
+            using InternalParameterT = SetInternalParametersCmd::InternalParamT;
+            InternalParameterT outputResistance1;
+            InternalParameterT inputResistance1;
+            InternalParameterT outputResistance2;
+            InternalParameterT inputResistance2;
+            InternalParameterT shuntResistance;
+            InternalParameterT outputVoltageLow;
+            InternalParameterT outputVoltageHigh;
         };
     };
+    struct Info {
+        GetInternalParametersCmd::InternalParamsT internals{};
+        AddressT                                  address{};
+        FirmwareVersionT                          fwVersion = GetFirmwareVersion::targetVersion;
+        OutputVoltage                             voltageLevel{};
+        Byte                                      isHealthy;
+    };
+
     Board(AddressT board_hw_address, std::shared_ptr<VoltagesQ> data_queue, std::shared_ptr<Mutex> sequential_run_mutex)
       : dataLink{ board_hw_address }
       , console{ "IOBoard:" + std::to_string(board_hw_address) + "::", ProjCfg::EnableLogForComponent::IOBoards }
@@ -153,10 +169,10 @@ class Board {
       , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
       , sequentialRunMutex{ std::move(sequential_run_mutex) }
       , getAllPinsVoltagesTask([this]() { GetAllPinsVoltagesTask(); },
-                              ProjCfg::Tasks::VoltageCheckTaskStackSize,
-                              ProjCfg::Tasks::VoltageCheckTaskPio,
-                              "board" + std::to_string(board_hw_address),
-                              true)
+                               ProjCfg::Tasks::VoltageCheckTaskStackSize,
+                               ProjCfg::Tasks::VoltageCheckTaskPio,
+                               "board" + std::to_string(board_hw_address),
+                               true)
     {
         getAllPinsVoltagesTask.Start();
     }
@@ -195,10 +211,12 @@ class Board {
         if (result != Result::Good)
             console.LogError("Voltage setting unsuccessful");
         else {
+            outputVoltageLevel = value;
+
             switch (value) {
-            case OutputVoltage::_07: outVoltageLevelSetting = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
-            case OutputVoltage::_09: outVoltageLevelSetting = ProjCfg::HIGH_OUTPUT_VOLTAGE_VALUE; break;
-            case OutputVoltage::Undefined: outVoltageLevelSetting = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::_07: outVoltageRealValue = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::_09: outVoltageRealValue = ProjCfg::HIGH_OUTPUT_VOLTAGE_VALUE; break;
+            case OutputVoltage::Undefined: outVoltageRealValue = ProjCfg::LOW_OUTPUT_VOLTAGE_VALUE; break;
             }
         }
 
@@ -246,7 +264,7 @@ class Board {
             if (send_result.first != Result::Good)
                 return send_result.first;
             if (*send_result.second != BoardAnswer::REPEAT_CMD_TO_CONFIRM) {
-                console.LogError("SetInternalParams::board did not sent REPEAT CMD TO CONFIRM, sent: " +
+                console.LogError("SetInternalParams::board did not sent REPEAT CMD TO CONFIRM, but: " +
                                  std::to_string(ToUnderlying(*send_result.second)));
                 return Result::UnhealthyAnswerValue;
             }
@@ -316,7 +334,7 @@ class Board {
 
         auto voltage            = CalculateVoltageFromAdcValue(adc_value);
         auto circuit_current    = voltage / shunt_resistance;
-        auto overall_resistance = outVoltageLevelSetting / circuit_current;
+        auto overall_resistance = outVoltageRealValue / circuit_current;
         auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance;
         return test_resistance;
     }
@@ -465,6 +483,9 @@ class Board {
         return response;
     }
 
+    OutputVoltage GetOutputVoltageLevel() const noexcept { return outputVoltageLevel; }
+    bool          IsHealthy() const noexcept { return isHealthy; }
+
   protected:
     Result SendCmd(Byte cmd, CommandArgT args, int retry_times = 0) noexcept
     {
@@ -598,14 +619,16 @@ class Board {
         auto constexpr static waitToRepeatAfterBadAckMs = 200;
     };
 
-    DataLink                   dataLink;
-    SmartLogger                console;
+    DataLink    dataLink;
+    SmartLogger console;
 
     std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
     std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
     std::shared_ptr<Mutex>     sequentialRunMutex;
 
-    Task                       getAllPinsVoltagesTask;
+    Task getAllPinsVoltagesTask;
 
-    OutputVoltageRealT         outVoltageLevelSetting = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
+    OutputVoltageRealT outVoltageRealValue = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
+    OutputVoltage      outputVoltageLevel  = OutputVoltage::_07;
+    bool               isHealthy{ true };
 };

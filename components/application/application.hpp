@@ -35,17 +35,15 @@ class Application {
         ESP_ERROR_CHECK(ret);
         esp_netif_init();
         ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-        auto connection_result = example_connect();
-        if (connection_result != ESP_OK) {
-            ESP_LOGE("MAIN", "No WIFI Connection obtained! Restarting!");
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            std::terminate();
-        }
     }
 
     void ConnectWireless() noexcept
     {
+        auto connection_result = example_connect();
+        if (connection_result != ESP_OK) {
+            console.OnFatalErrorTermination("No WIFI Connection obtained! Restarting!");
+        }
+
         tcpip_adapter_ip_info_t ip_info;
         esp_err_t               err = tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip_info);
         if (err != ESP_OK) {
@@ -57,7 +55,7 @@ class Application {
         console.Log("Master's IP: " + masterIP.to_string());
     }
 
-    [[noreturn]] void MainTask() noexcept
+    void MainTask() noexcept
     {
         ResetReasonNotifier rrNotifier{};
         rrNotifier.Notify();
@@ -78,17 +76,20 @@ class Application {
         apparatus = Apparatus::Get();
 
         commandManagerTask.Start();
-        mainTask.Stop();
 
-        while(true) {
-            Task::DelayMs(500);
-        }
+        mainTask.Stop();
     }
 
     [[noreturn]] void CommandManagerTask() noexcept
     {
         auto from_master_q = communicator->GetFromMasterCommandsQ();
         auto to_master_sb  = communicator->GetToMasterSB();
+
+        while (not apparatus->BoardsHaveBeenChecked()) {
+            Task::DelayMs(100);
+        }
+
+        communicator->UnsetNotInitializedFlagResponse();
 
         while (true) {
             auto msg = from_master_q->Receive();
@@ -100,33 +101,55 @@ class Application {
             using ID    = MessageFromMaster::Command::ID;
             auto cmd_id = msg->GetCommandID();
             switch (cmd_id) {
-            case ID::GetBoards:
-                to_master_sb->Send(Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize());
-                to_master_sb->Send(BoardsInfo(apparatus->GetBoards()).Serialize());
-                console.Log("CMT: response with boards sent!");
-                break;
-
-            case ID::MeasureAll:
-
-
+            case ID::GetBoards: {
+                to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                auto boards_info = apparatus->GetBoards();
+                if (boards_info == std::nullopt) {
+                    to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
+                    break;
+                }
+                else {
+                    auto bytes   = BoardsInfo(std::move(*boards_info)).Serialize();
+                    int  counter = 0;
+                    for (auto const &byte : bytes) {
+                        console.Log(std::to_string(counter) + ":" + std::to_string(byte));
+                        counter++;
+                    }
+                    to_master_sb->Send(std::move(bytes));
+                    console.Log("CMT: response with boards sent!");
+                }
+            } break;
+            case ID::MeasureAll: {
+                to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                auto result = apparatus->MeasureAll();
+                if (result == std::nullopt) {
+                    to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
+                    continue;
+                }
+                else {
+                    to_master_sb->Send(result->Serialize());
+                }
+            } break;
+            case ID::CheckConnections: {
+                to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                apparatus->CheckConnections();
+            } break;
             default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
             }
         }
     }
 
   private:
-    Application()
-      : mainTask([this]() { MainTask(); }, ProjCfg::MainStackSize, ProjCfg::MainPrio, "Main", false)
-    { }
     static std::shared_ptr<Application> _this;
 
-    SmartLogger          console{ "Main", ProjCfg::EnableLogForComponent::Main };
-    Task                 mainTask;
-    Task                 commandManagerTask{ [this]() { CommandManagerTask(); },
+    SmartLogger console{ "Main", ProjCfg::EnableLogForComponent::Main };
+    Task        mainTask{ [this]() { MainTask(); }, ProjCfg::MainStackSize, ProjCfg::MainPrio, "Main", false };
+    Task        commandManagerTask{ [this]() { CommandManagerTask(); },
                              ProjCfg::Tasks::CommandManagerStackSize,
                              ProjCfg::Tasks::CommandManagerPrio,
                              "CommandManager",
                              true };
+
     asio::ip::address_v4 masterIP;
 
     std::shared_ptr<Comm>      communicator;

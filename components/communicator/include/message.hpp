@@ -102,7 +102,7 @@ class PinConnectivity final : MessageToMaster {
         Byte             connectionVoltageLvl;
     };
 
-    explicit PinConnectivity(PinAffinityAndId master_pin, std::vector<PinConnectionData> new_connections) noexcept
+    explicit PinConnectivity(PinAffinityAndId master_pin, std::vector<PinConnectionData> &&new_connections) noexcept
       : masterPin{ std::move(master_pin) }
       , connections{ std::move(new_connections) }
     { }
@@ -132,7 +132,7 @@ class PinConnectivity final : MessageToMaster {
     std::vector<PinConnectionData> connections;
 };
 
-class Confirmation final : MessageToMaster {
+class CommandStatus final : MessageToMaster {
   public:
     enum class Answer : Byte {
         CommandAcknowledge = 1,
@@ -141,10 +141,12 @@ class Confirmation final : MessageToMaster {
         CommandPerformanceSuccess,
         CommandAcknowledgeTimeout,
         CommandPerformanceTimeout,
-        CommunicationFailur,
+        CommunicationFailure,
+
+        DeviceIsInitializing,
     };
 
-    explicit Confirmation(Answer ans) noexcept
+    explicit CommandStatus(Answer ans) noexcept
       : answer{ ans }
     { }
 
@@ -165,19 +167,83 @@ class Confirmation final : MessageToMaster {
 
 class BoardsInfo final : MessageToMaster {
   public:
-    explicit BoardsInfo(std::vector<std::shared_ptr<Board>> connected_boards) noexcept
+    explicit BoardsInfo(std::vector<Board::Info> &&boards_info) noexcept
+      : boardsInfo{ std::move(boards_info) }
+    { }
+
+    std::vector<Byte> Serialize() noexcept final
     {
-        addresses.reserve(connected_boards.size());
-        std::transform(connected_boards.begin(),
-                       connected_boards.end(),
-                       std::back_inserter(addresses),
-                       [](auto const &board) { return board->GetAddress(); });
+        std::vector<Byte> v;
+        v.reserve(sizeof(MSG_ID) + boardsInfo.size() * ONE_BOARD_INFO_BYTES_SIZE);
+        v.push_back(MSG_ID);
+
+        for (auto const &board_info : boardsInfo) {
+            const Byte *internals_as_byte_array = reinterpret_cast<const Byte *>(&board_info.internals);
+            for (auto counter = 0; counter < sizeof(board_info.internals); counter++) {
+                v.push_back(internals_as_byte_array[counter]);
+            }
+
+            v.push_back(board_info.address);
+            v.push_back(board_info.fwVersion);
+            v.push_back(ToUnderlying(board_info.voltageLevel));
+            v.push_back(board_info.isHealthy);
+        }
+
+        return v;
     }
 
-    std::vector<Byte> Serialize() noexcept final { return addresses; }
+  private:
+    constexpr static Byte    MSG_ID                    = 52;
+    constexpr static Byte    ONE_BOARD_INFO_BYTES_SIZE = sizeof(Board::Info);
+    std::vector<Board::Info> boardsInfo;
+};
+
+class AllBoardsVoltages final : MessageToMaster {
+  public:
+    explicit AllBoardsVoltages(std::vector<Board::OneBoardVoltages> &&boards_voltages) noexcept
+      : boardsVoltages{ std::move(boards_voltages) }
+    { }
+
+    void AppendBoardVoltages(Board::OneBoardVoltages &&board_voltages) noexcept
+    {
+        auto same_id_board =
+          std::find_if(boardsVoltages.begin(), boardsVoltages.end(), [&board_voltages](auto const &boardVoltages) {
+              return boardVoltages.boardAddress == board_voltages.boardAddress;
+          });
+
+        if (same_id_board != boardsVoltages.end()) {
+            same_id_board->pinsVoltages = board_voltages.pinsVoltages;
+        }
+        else {
+            boardsVoltages.emplace_back(std::move(board_voltages));
+        }
+    }
+
+    std::vector<Byte> Serialize() noexcept override
+    {
+        std::vector<Byte> v;
+        v.reserve(ONE_BOARD_VOLTAGES_SIZE_BYTES * boardsVoltages.size());
+        v.push_back(MSG_ID);
+
+        for (auto const &boardVoltages : boardsVoltages) {
+            v.push_back(boardVoltages.boardAddress);
+
+            int counter = 0;
+            for (auto const &voltage : boardVoltages.pinsVoltages) {
+                v.push_back(Board::logicPinToPinOnBoardMapping.at(counter));
+                v.push_back(voltage);
+
+                counter++;
+            }
+        }
+
+        return v;
+    }
 
   private:
-    std::vector<Board::AddressT> addresses;
+    constexpr static Byte                MSG_ID                        = 53;
+    constexpr static auto                ONE_BOARD_VOLTAGES_SIZE_BYTES = 1 + Board::pinCount * 2;
+    std::vector<Board::OneBoardVoltages> boardsVoltages;
 };
 
 class Status final : MessageToMaster {
@@ -211,13 +277,14 @@ class Status final : MessageToMaster {
         VeryUnhealthyConnection   // if controller reaches failed messages count this flag is set
     };
 
-    std::vector<Byte> Serialize() noexcept override
+    std::vector<Byte> Serialize() noexcept final
     {
         return std::vector{ ToUnderlying(status), ToUnderlying(wifi), ToUnderlying(bt), ToUnderlying(boards) };
     }
 
   private:
     auto constexpr static BYTES_SIZE = 4;
+    //    constexpr static Byte MSG_ID     = 53;
     StatusValue  status{ StatusValue::Initializing };
     WiFiStatus   wifi{};
     BTStatus     bt{ BTStatus::Disabled };

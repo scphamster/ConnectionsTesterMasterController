@@ -22,7 +22,6 @@ enum BoardsConfigs {
     MinAddress                                             = 1,
     MaxAddress                                             = 127,
     DelayBeforeCheckOfInternalCounterAfterInitializationMs = 200,
-    CommandSendRetryNumber                                 = 3,
     PinConnectionsCheckRetryCount                          = 5,
     DelayBeforeAcknowledgeCheckMs                          = 1,
     DelayAfterPinVoltageSetMs                              = 1,
@@ -71,6 +70,12 @@ enum TimeoutMs {
 
 enum Socket {
     EntryPortNumber = 1500
+};
+
+enum Retry {
+    GetAllVoltagesRetryTimes = 3,
+    CommandSendRetryNumber                                 = 3,
+
 };
 
 uint8_t const static high_voltage_reference_select_pin = 20;

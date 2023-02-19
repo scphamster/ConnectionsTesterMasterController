@@ -21,7 +21,7 @@ class AllBoardsVoltages {
         for (auto const &result : results) {
             *byte_iterator++ = result.boardAddress;
 
-            for (auto const pin_voltage : result.voltagesArray) {
+            for (auto const pin_voltage : result.pinsVoltages) {
                 *byte_iterator++ = pin_voltage;
             }
         }
