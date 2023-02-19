@@ -98,8 +98,11 @@ class Communicator {
                 continue;
             }
 
+            auto message_size = bytes_to_be_sent->size();
+
+            asio::write(*socket, asio::buffer(&message_size, sizeof(message_size)));
             asio::write(*socket, asio::buffer(bytes_to_be_sent->data(), bytes_to_be_sent->size()));
-            console.Log("bytes sent to master!");
+            console.Log(std::to_string(message_size) + " bytes sent to master!");
         }
     }
     [[noreturn]] void ReadTask() noexcept

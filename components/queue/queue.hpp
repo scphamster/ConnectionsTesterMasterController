@@ -13,7 +13,7 @@ template<typename ItemType>
 class Queue {
   public:
     using TimeT = portTickType;
-    using Byte = uint8_t;
+    using Byte  = uint8_t;
 
     explicit Queue(size_t queue_length)
       : handle{ xQueueCreate(queue_length, sizeof(ItemType)) }
@@ -38,7 +38,7 @@ class Queue {
         std::array<Byte, sizeof(ItemType)> buffer{};
 
         if (xQueueReceive(handle, buffer.data(), timeout) == pdTRUE)
-            return *reinterpret_cast<ItemType*>(buffer.data());
+            return *reinterpret_cast<ItemType *>(buffer.data());
         else
             return std::nullopt;
     }
@@ -168,7 +168,7 @@ class ByteStreamBuffer {
 
     std::optional<std::vector<Byte>> Receive(TimeoutMsec timeoutMsec = portMAX_DELAY) noexcept
     {
-        size_t bytes_to_read_number{};
+        size_t message_size{};
         size_t bytes_read_number{};
 
         if (timeoutMsec != portMAX_DELAY)
@@ -176,23 +176,26 @@ class ByteStreamBuffer {
 
         auto deadline = esp_timer_get_time() + timeoutMsec * 1000;
 
-        while (bytes_read_number != sizeof(bytes_to_read_number)) {
+        while (bytes_read_number != sizeof(message_size)) {
             bytes_read_number += xStreamBufferReceive(handle,
-                                                      reinterpret_cast<Byte *>(&bytes_to_read_number) + bytes_read_number,
-                                                      sizeof(bytes_to_read_number) - bytes_read_number,
+                                                      reinterpret_cast<Byte *>(&message_size) + bytes_read_number,
+                                                      sizeof(message_size) - bytes_read_number,
                                                       pdMS_TO_TICKS(configBufferOperationTimeout));
 
             if (deadline < esp_timer_get_time())
                 return std::nullopt;
         }
 
-        auto data = std::vector<Byte>(bytes_to_read_number);
+        if (message_size == 0) {
+            return std::nullopt;
+        }
 
         bytes_read_number = 0;
-        while (bytes_read_number != bytes_to_read_number) {
+        auto data         = std::vector<Byte>(message_size);
+        while (bytes_read_number != message_size) {
             bytes_read_number += xStreamBufferReceive(handle,
                                                       data.data() + bytes_read_number,
-                                                      bytes_to_read_number - bytes_read_number,
+                                                      message_size - bytes_read_number,
                                                       pdMS_TO_TICKS(configBufferOperationTimeout));
 
             if (deadline < esp_timer_get_time())

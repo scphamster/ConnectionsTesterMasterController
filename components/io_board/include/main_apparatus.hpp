@@ -329,8 +329,11 @@ class Apparatus {
         answer_to_master.append("END\n");
 
         console.Log(answer_to_master);
-        bluetooth->Write(answer_to_master);
-        socket->GetToMasterSB()->Send(PinConnectivity(std::move(master_pin), std::move(cons)).Serialize());
+
+        if (not socket->GetToMasterSB()->Send(PinConnectivity(std::move(master_pin), std::move(cons)).Serialize())) {
+            console.LogError("Unsuccessful send to streambuffer! Pin: " + std::to_string(board->GetAddress()) + ":" +
+                             std::to_string(pin));
+        }
         //        Task::DelayMs(3);
 
         return true;

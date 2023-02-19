@@ -110,12 +110,11 @@ class PinConnectivity final : MessageToMaster {
     std::vector<Byte> Serialize() noexcept final
     {
         std::vector<Byte> result;
-        result.reserve(sizeof(MSG_ID) + sizeof(masterPin) + 1 + connections.size() * sizeof(PinConnectionData));
+        result.reserve(sizeof(MSG_ID) + sizeof(masterPin) + connections.size() * sizeof(PinConnectionData));
 
         result.push_back(MSG_ID);
         result.push_back(masterPin.boardAffinity);
         result.push_back(masterPin.id);
-        result.push_back(static_cast<Byte>(connections.size()));
 
         for (auto &connection : connections) {
             result.push_back(connection.affinityAndId.boardAffinity);
