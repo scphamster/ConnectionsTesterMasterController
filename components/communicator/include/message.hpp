@@ -4,6 +4,7 @@
 #include <array>
 
 #include "vector_algorithms.hpp"
+#include "utilities.hpp"
 
 class MessageFromMaster {
   public:
@@ -59,7 +60,7 @@ class MessageFromMaster {
         struct CheckConnections {
             CheckConnections(std::vector<Byte>::const_iterator byte_it)
             {
-                if (*byte_it++ == CHECK_ALL) {
+                if (*byte_it == CHECK_ALL) {
                     measureAll = true;
                     return;
                 }
@@ -67,7 +68,6 @@ class MessageFromMaster {
                     throw std::invalid_argument("board address is not inside allowed addresses : " +
                                                 std::to_string(*byte_it));
                 }
-
                 boardAffinity = *byte_it++;
                 if (*byte_it > MAX_PIN)
                     throw std::invalid_argument("pin number is higher than allowed: " + std::to_string(*byte_it));

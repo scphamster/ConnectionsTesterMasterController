@@ -139,6 +139,11 @@ class Communicator {
                     continue;
                 }
 
+//                auto byte_counter = 0;
+//                for (const auto &byte : main_buffer) {
+//                    console.Log(std::to_string(byte_counter) + ":" + std::to_string(byte));
+//                }
+
                 auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
                 console.Log("New successful creation of messageFromMaster!");
                 fromMasterCommandsQ->Send(msg);
