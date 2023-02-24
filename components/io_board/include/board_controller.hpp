@@ -36,6 +36,8 @@ class Board {
       std::array<PinNumT, pinCount>{ 6,  4,  2,  0,  9,  11, 13, 15, 22, 20, 18, 16, 25, 27, 29, 31,
                                      30, 28, 26, 24, 17, 19, 21, 23, 14, 12, 10, 8,  1,  3,  5,  7 };
 
+    std::pair<Byte, Byte> constexpr static ADDRESSES_ALLOWED_INCLUSIVE = {1, 127};
+
     enum class Result {
         BadCommunication,
         BadAcknowledge,
@@ -67,6 +69,11 @@ class Board {
         Undefined = 0,
         _09       = ProjCfg::high_voltage_reference_select_pin,
         _07       = ProjCfg::low_voltage_reference_select_pin,
+    };
+
+    struct PinAffinityAndId {
+        Byte boardAddress;
+        Byte pinId;
     };
 
     struct VoltageCheckCmd {

@@ -25,9 +25,11 @@ class MessageFromMaster {
             SetInternalParameters,
             GetInternalParameters,
             Test,
+            DataLinkKeepAlive,
             Unknown
         };
         using Bytes = std::vector<Byte>;
+
         struct MeasureAll { };
         struct SetVoltageLevel {
             SetVoltageLevel(Byte byte)
@@ -54,6 +56,33 @@ class MessageFromMaster {
             Byte pinNumber;
         };
         struct GetBoardsInfo { };
+        struct CheckConnections {
+            CheckConnections(std::vector<Byte>::const_iterator byte_it)
+            {
+                if (*byte_it++ == CHECK_ALL) {
+                    measureAll = true;
+                    return;
+                }
+                if (*byte_it > ADDRESSES_ALLOWED_INCLUSIVE.second or *byte_it < ADDRESSES_ALLOWED_INCLUSIVE.first) {
+                    throw std::invalid_argument("board address is not inside allowed addresses : " +
+                                                std::to_string(*byte_it));
+                }
+
+                boardAffinity = *byte_it++;
+                if (*byte_it > MAX_PIN)
+                    throw std::invalid_argument("pin number is higher than allowed: " + std::to_string(*byte_it));
+
+                pinNumber = *byte_it;
+            }
+            Byte                  boardAffinity;
+            Byte                  pinNumber;
+            bool                  measureAll                  = false;
+            constexpr static Byte CHECK_ALL                   = 255;
+            constexpr static Byte MAX_PIN                     = Board::pinCount - 1;
+            constexpr static auto ADDRESSES_ALLOWED_INCLUSIVE = Board::ADDRESSES_ALLOWED_INCLUSIVE;
+        };
+        struct KeepAliveMessage { };
+
         Command(std::vector<Byte> const &bytes)
         {
             auto msg_id = bytes.at(0);
@@ -62,13 +91,18 @@ class MessageFromMaster {
             case ID::MeasureAll: measureAll = MeasureAll(); break;
             case ID::SetOutputVoltageLevel: setVLvl = SetVoltageLevel{ bytes.at(1) }; break;
             case ID::GetBoards: getBoards = GetBoardsInfo{}; break;
+            case ID::DataLinkKeepAlive: keepAlive = KeepAliveMessage{}; break;
+            case ID::CheckConnections: checkConnections = CheckConnections{ bytes.cbegin() + 1 }; break;
+
             default: break;
             };
         }
 
-        MeasureAll      measureAll;
-        SetVoltageLevel setVLvl;
-        GetBoardsInfo   getBoards;
+        MeasureAll       measureAll;
+        SetVoltageLevel  setVLvl;
+        GetBoardsInfo    getBoards;
+        KeepAliveMessage keepAlive;
+        CheckConnections checkConnections;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -76,7 +110,16 @@ class MessageFromMaster {
       , commandID{ bytes.at(0) }
     { }
 
-    Command::ID GetCommandID() const noexcept { return commandID; }
+    Command::ID    GetCommandID() const noexcept { return commandID; }
+    [[nodiscard]] decltype(auto) GetCommand() const noexcept
+    {
+        switch (commandID) {
+        case Command::ID::CheckConnections: {
+            return cmd.checkConnections;
+        }
+        default: throw std::runtime_error("No implementation for cmd id: " + std::to_string(ToUnderlying(commandID)));
+        }
+    }
 
   private:
     Command     cmd;
@@ -93,10 +136,8 @@ class MessageToMaster {
 };
 class PinConnectivity final : MessageToMaster {
   public:
-    struct PinAffinityAndId {
-        Byte boardAffinity;
-        Byte id;
-    };
+    using PinAffinityAndId= Board::PinAffinityAndId;
+
     struct PinConnectionData {
         PinAffinityAndId affinityAndId;
         Byte             connectionVoltageLvl;
@@ -113,12 +154,12 @@ class PinConnectivity final : MessageToMaster {
         result.reserve(sizeof(MSG_ID) + sizeof(masterPin) + connections.size() * sizeof(PinConnectionData));
 
         result.push_back(MSG_ID);
-        result.push_back(masterPin.boardAffinity);
-        result.push_back(masterPin.id);
+        result.push_back(masterPin.boardAddress);
+        result.push_back(masterPin.pinId);
 
         for (auto &connection : connections) {
-            result.push_back(connection.affinityAndId.boardAffinity);
-            result.push_back(connection.affinityAndId.id);
+            result.push_back(connection.affinityAndId.boardAddress);
+            result.push_back(connection.affinityAndId.pinId);
             result.push_back(connection.connectionVoltageLvl);
         }
 
@@ -143,6 +184,7 @@ class CommandStatus final : MessageToMaster {
         CommunicationFailure,
 
         DeviceIsInitializing,
+        KeepAliveMessage
     };
 
     explicit CommandStatus(Answer ans) noexcept

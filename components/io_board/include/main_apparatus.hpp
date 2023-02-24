@@ -112,7 +112,10 @@ class Apparatus {
 
         return AllBoardsVoltages(std::move(*voltages));
     }
-    void CheckConnections() noexcept { FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true); }
+    void CheckAllConnections() noexcept { FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true); }
+    void CheckConnection(Board::PinAffinityAndId pin) noexcept {
+        FindConnectionsForPinAtBoard(pin.pinId, pin.boardAddress, ConnectionAnalysis::Raw, true);
+    }
     //     end new
 
   protected:
@@ -194,6 +197,9 @@ class Apparatus {
     }
     void SendAllBoardsIds() noexcept
     {
+        //todo: clenup this function
+        return;
+
         std::string response = "HW dummyarg -> ";
 
         for (auto board : ioBoards) {

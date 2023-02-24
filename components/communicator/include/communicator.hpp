@@ -143,7 +143,8 @@ class Communicator {
                 console.Log("New successful creation of messageFromMaster!");
                 fromMasterCommandsQ->Send(msg);
             } catch (const std::invalid_argument &exception) {
-                console.LogError("Invalid argument exception when creating message from master");
+                console.LogError("Invalid argument exception when creating message from master: " +
+                                 std::string(exception.what()));
             } catch (...) {
                 console.LogError("Unknown error when creating MessageFromMaster");
                 continue;
@@ -235,7 +236,7 @@ class Communicator {
     Task writeTask;
     Task readTask;
 
-    std::optional<CommandStatus> immediateAutoResponse{CommandStatus(CommandStatus::Answer::DeviceIsInitializing)};
+    std::optional<CommandStatus> immediateAutoResponse{ CommandStatus(CommandStatus::Answer::DeviceIsInitializing) };
 
     bool socketIsConnected = false;
 };

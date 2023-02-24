@@ -103,6 +103,8 @@ class Application {
             switch (cmd_id) {
             case ID::GetBoards: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                console.Log("FromMasterCMD: Get boards");
+
                 auto boards_info = apparatus->GetBoards();
                 if (boards_info == std::nullopt) {
                     to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
@@ -121,6 +123,8 @@ class Application {
             } break;
             case ID::MeasureAll: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                console.Log("FromMasterCMD: MeasureAll");
+
                 auto result = apparatus->MeasureAll();
                 if (result == std::nullopt) {
                     to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
@@ -132,8 +136,24 @@ class Application {
             } break;
             case ID::CheckConnections: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
-                apparatus->CheckConnections();
+                console.Log("FromMasterCMD: CheckAllConnections");
+
+                if (msg->GetCommand().measureAll) {
+                    apparatus->CheckAllConnections();
+                }
+                else {
+                    console.Log("Check connection received");
+
+                    apparatus->CheckConnection(
+                      Board::PinAffinityAndId{ msg->GetCommand().boardAffinity, msg->GetCommand().pinNumber });
+                }
+
             } break;
+            case ID::DataLinkKeepAlive: {
+                //                to_master_sb->Send(CommandStatus(CommandStatus::Answer::KeepAliveMessage).Serialize());
+                console.Log("Keepalive");
+            } break;
+
             default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
             }
         }
