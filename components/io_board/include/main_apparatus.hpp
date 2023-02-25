@@ -116,6 +116,26 @@ class Apparatus {
     void CheckConnection(Board::PinAffinityAndId pin) noexcept {
         FindConnectionsForPinAtBoard(pin.pinId, pin.boardAddress, ConnectionAnalysis::Raw, true);
     }
+    void EnableOutputForPin(BoardAddrT board_addr, PinNumT pin) noexcept
+    {
+        auto board = FindBoardWithAddress(board_addr);
+        if (board == std::nullopt) {
+            console.LogError("board with addr:" + std::to_string(board_addr) + " not found");
+            return;
+        }
+
+        auto result = (*board)->SetVoltageAtPin(pin);
+        if (result == CommResult::Good) {
+            console.Log("Voltage at pin: " + std::to_string(pin) + " was set");
+        }
+        else {
+            console.LogError("Voltage at pin: " + std::to_string(pin) + " failed to set");
+        }
+    }
+    void EnableOutputForPin(Board::PinAffinityAndId pin_affinity_and_id) noexcept {
+        EnableOutputForPin(pin_affinity_and_id.boardAddress, pin_affinity_and_id.pinId);
+    }
+
     //     end new
 
   protected:
@@ -210,22 +230,6 @@ class Apparatus {
 
         bluetooth->Write(response);
         console.Log("response sent: " + response);
-    }
-    void EnableOutputForPin(BoardAddrT board_addr, PinNumT pin) noexcept
-    {
-        auto board = FindBoardWithAddress(board_addr);
-        if (board == std::nullopt) {
-            console.LogError("board with addr:" + std::to_string(board_addr) + " not found");
-            return;
-        }
-
-        auto result = (*board)->SetVoltageAtPin(pin);
-        if (result == CommResult::Good) {
-            console.Log("Voltage at pin: " + std::to_string(pin) + " was set");
-        }
-        else {
-            console.LogError("Voltage at pin: " + std::to_string(pin) + " failed to set");
-        }
     }
     void SetOutputVoltageValue(OutputVoltageLevel level) noexcept
     {

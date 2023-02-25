@@ -139,18 +139,19 @@ class Communicator {
                     continue;
                 }
 
-//                auto byte_counter = 0;
-//                for (const auto &byte : main_buffer) {
-//                    console.Log(std::to_string(byte_counter) + ":" + std::to_string(byte));
-//                }
-
                 auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
                 console.Log("New successful creation of messageFromMaster!");
                 fromMasterCommandsQ->Send(msg);
             } catch (const std::invalid_argument &exception) {
                 console.LogError("Invalid argument exception when creating message from master: " +
                                  std::string(exception.what()));
-            } catch (...) {
+
+
+            }
+            catch(std::system_error &e) {
+                console.LogError(e.what());
+            }
+            catch (...) {
                 console.LogError("Unknown error when creating MessageFromMaster");
                 continue;
             }

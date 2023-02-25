@@ -98,7 +98,8 @@ class Application {
                 continue;
             }
 
-            using ID    = MessageFromMaster::Command::ID;
+            using ID  = MessageFromMaster::Command::ID;
+
             auto cmd_id = msg->GetCommandID();
             switch (cmd_id) {
             case ID::GetBoards: {
@@ -138,14 +139,14 @@ class Application {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
                 console.Log("FromMasterCMD: CheckAllConnections");
 
-                if (msg->GetCommand().measureAll) {
+                if (msg->cmd.checkConnections.measureAll) {
                     apparatus->CheckAllConnections();
                 }
                 else {
                     console.Log("Check connection received");
 
-                    apparatus->CheckConnection(
-                      Board::PinAffinityAndId{ msg->GetCommand().boardAffinity, msg->GetCommand().pinNumber });
+                    apparatus->CheckConnection(Board::PinAffinityAndId{ msg->cmd.checkConnections.boardAffinity,
+                                                                        msg->cmd.checkConnections.pinNumber });
                 }
 
             } break;
@@ -153,7 +154,10 @@ class Application {
                 //                to_master_sb->Send(CommandStatus(CommandStatus::Answer::KeepAliveMessage).Serialize());
                 console.Log("Keepalive");
             } break;
-
+            case ID::EnableOutputForPin: {
+                to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                apparatus->EnableOutputForPin(msg->cmd.enableOutputForPin.pinAffinityAndId);
+            } break;
             default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
             }
         }

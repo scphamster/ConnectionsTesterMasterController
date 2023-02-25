@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <array>
+#include <variant>
 
 #include "vector_algorithms.hpp"
 #include "utilities.hpp"
@@ -29,7 +30,8 @@ class MessageFromMaster {
             DataLinkKeepAlive,
             Unknown
         };
-        using Bytes = std::vector<Byte>;
+        using Bytes    = std::vector<Byte>;
+        using Iterator = std::vector<Byte>::const_iterator;
 
         struct MeasureAll { };
         struct SetVoltageLevel {
@@ -82,6 +84,13 @@ class MessageFromMaster {
             constexpr static auto ADDRESSES_ALLOWED_INCLUSIVE = Board::ADDRESSES_ALLOWED_INCLUSIVE;
         };
         struct KeepAliveMessage { };
+        struct EnableOutputForPin {
+            EnableOutputForPin(Iterator it)
+              : pinAffinityAndId{ *it++, *it }
+            { }
+
+            Board::PinAffinityAndId pinAffinityAndId;
+        };
 
         Command(std::vector<Byte> const &bytes)
         {
@@ -93,16 +102,18 @@ class MessageFromMaster {
             case ID::GetBoards: getBoards = GetBoardsInfo{}; break;
             case ID::DataLinkKeepAlive: keepAlive = KeepAliveMessage{}; break;
             case ID::CheckConnections: checkConnections = CheckConnections{ bytes.cbegin() + 1 }; break;
+            case ID::EnableOutputForPin: enableOutputForPin = EnableOutputForPin{ bytes.cbegin() + 1 }; break;
 
-            default: break;
+            default: throw std::system_error(std::error_code(), "Unimplemented command id: " + std::to_string(msg_id));
             };
         }
 
-        MeasureAll       measureAll;
-        SetVoltageLevel  setVLvl;
-        GetBoardsInfo    getBoards;
-        KeepAliveMessage keepAlive;
-        CheckConnections checkConnections;
+        MeasureAll         measureAll;
+        SetVoltageLevel    setVLvl;
+        GetBoardsInfo      getBoards;
+        KeepAliveMessage   keepAlive;
+        CheckConnections   checkConnections;
+        EnableOutputForPin enableOutputForPin;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -110,20 +121,11 @@ class MessageFromMaster {
       , commandID{ bytes.at(0) }
     { }
 
-    Command::ID    GetCommandID() const noexcept { return commandID; }
-    [[nodiscard]] decltype(auto) GetCommand() const noexcept
-    {
-        switch (commandID) {
-        case Command::ID::CheckConnections: {
-            return cmd.checkConnections;
-        }
-        default: throw std::runtime_error("No implementation for cmd id: " + std::to_string(ToUnderlying(commandID)));
-        }
-    }
+    Command::ID                  GetCommandID() const noexcept { return commandID; }
 
-  private:
     Command     cmd;
     Command::ID commandID{};
+  private:
 };
 
 class MessageToMaster {
@@ -136,7 +138,7 @@ class MessageToMaster {
 };
 class PinConnectivity final : MessageToMaster {
   public:
-    using PinAffinityAndId= Board::PinAffinityAndId;
+    using PinAffinityAndId = Board::PinAffinityAndId;
 
     struct PinConnectionData {
         PinAffinityAndId affinityAndId;
