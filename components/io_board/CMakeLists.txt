@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 set(SOURCES
-    include/main_apparatus.hpp
+    include/boards_manager.hpp
     include/main_apparatus.cpp
-    include/board_controller.hpp
+    include/board.hpp
     include/data_link.hpp
     include/measurement_structures.hpp)
 

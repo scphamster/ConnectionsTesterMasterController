@@ -13,8 +13,8 @@
 #include "bluetooth.hpp"
 
 #include "reset_reason_notifier.hpp"
-#include "main_apparatus.hpp"
-#include "board_controller.hpp"
+#include "boards_manager.hpp"
+#include "board.hpp"
 #include "message.hpp"
 
 class Application {
@@ -82,7 +82,7 @@ class Application {
         auto from_master_q = communicator->GetFromMasterCommandsQ();
         auto to_master_sb  = communicator->GetToMasterSB();
 
-        while (not apparatus->BoardsHaveBeenChecked()) {
+        while (not apparatus->BoardsSearchPerformed()) {
             Task::DelayMs(100);
         }
 

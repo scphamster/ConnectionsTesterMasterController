@@ -2,7 +2,7 @@
 #include <memory>
 #include <vector>
 
-#include "board_controller.hpp"
+#include "board.hpp"
 #include "data_link.hpp"
 // #include "esp_logger.hpp"
 #include "iic.hpp"
@@ -50,8 +50,7 @@ class Apparatus {
         return _this;
     }
 
-    // new
-    bool                                    BoardsHaveBeenChecked() const noexcept { return boardsChecked; }
+    [[nodiscard]] bool                                    BoardsSearchPerformed() const noexcept { return boardsSearchPerformed; }
     std::optional<std::vector<Board::Info>> GetBoards() noexcept
     {
         if (ioBoards.empty())
@@ -61,7 +60,7 @@ class Apparatus {
         v.reserve(ioBoards.size());
 
         for (const auto &board : ioBoards) {
-            auto internals = board->GetInternalParameters(ProjCfg::Retry::CommandSendRetryNumber);
+            auto internals = board->GetInternalParameters(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
 
             if (internals.second == std::nullopt) {
                 console.LogError("Unsuccessful internal parameters retrieval for board " +
@@ -95,7 +94,7 @@ class Apparatus {
     {
         auto voltages = GetAllVoltages(true);
         if (voltages == std::nullopt) {
-            for (int retry_counter = 0; retry_counter < ProjCfg::Retry::GetAllVoltagesRetryTimes; retry_counter++) {
+            for (int retry_counter = 0; retry_counter < ProjCfg::FailHandle::GetAllVoltagesRetryTimes; retry_counter++) {
                 voltages = GetAllVoltages(true);
 
                 if (voltages != std::nullopt)
@@ -105,7 +104,7 @@ class Apparatus {
 
         if (voltages == std::nullopt) {
             console.LogError("Get all voltages command failed with " +
-                             std::to_string(ProjCfg::Retry::GetAllVoltagesRetryTimes) + " retry number");
+                             std::to_string(ProjCfg::FailHandle::GetAllVoltagesRetryTimes) + " retry number");
 
             return std::nullopt;
         }
@@ -113,7 +112,8 @@ class Apparatus {
         return AllBoardsVoltages(std::move(*voltages));
     }
     void CheckAllConnections() noexcept { FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true); }
-    void CheckConnection(Board::PinAffinityAndId pin) noexcept {
+    void CheckConnection(Board::PinAffinityAndId pin) noexcept
+    {
         FindConnectionsForPinAtBoard(pin.pinId, pin.boardAddress, ConnectionAnalysis::Raw, true);
     }
     void EnableOutputForPin(BoardAddrT board_addr, PinNumT pin) noexcept
@@ -132,13 +132,28 @@ class Apparatus {
             console.LogError("Voltage at pin: " + std::to_string(pin) + " failed to set");
         }
     }
-    void EnableOutputForPin(Board::PinAffinityAndId pin_affinity_and_id) noexcept {
+    void EnableOutputForPin(Board::PinAffinityAndId pin_affinity_and_id) noexcept
+    {
         EnableOutputForPin(pin_affinity_and_id.boardAddress, pin_affinity_and_id.pinId);
     }
-    void DisableOutput() const noexcept {
 
+    /**
+     *
+     * @param forcedDisable : true: sends to all available boards command to disable output despite state of output
+     *                                  stored inside Board class
+     */
+    void DisableOutput(bool forcedDisable = false) const noexcept
+    {
+        for (const auto &board : ioBoards) {
+            if (forcedDisable) {
+                board->DisableOutput(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
+            }
+            else {
+                if (board->OutputIsEnabled())
+                    board->DisableOutput(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
+            }
+        }
     }
-    //     end new
 
   protected:
     enum class ConnectionAnalysis {
@@ -190,10 +205,11 @@ class Apparatus {
 
         int board_counter = 0;
         for (auto const &board : ioBoards) {
-            auto [comm_result, counter_value] = board->GetBoardCounterValue(ProjCfg::Retry::CommandSendRetryNumber);
-            board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::Retry::CommandSendRetryNumber);
+            auto [comm_result, counter_value] =
+              board->GetBoardCounterValue(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
+            board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
 
-            auto result = board->CheckFWVersionCompliance(ProjCfg::Retry::CommandSendRetryNumber);
+            auto result = board->CheckFWVersionCompliance(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
             if (result.first == CommResult::BadCommunication) {
                 console.LogError("Board with address " + std::to_string(board->GetAddress()) +
                                  " has problems with communication!");
@@ -215,11 +231,11 @@ class Apparatus {
             board_counter++;
         }
 
-        boardsChecked = true;
+        boardsSearchPerformed = true;
     }
     void SendAllBoardsIds() noexcept
     {
-        //todo: clenup this function
+        // todo: clenup this function
         return;
 
         std::string response = "HW dummyarg -> ";
@@ -236,11 +252,11 @@ class Apparatus {
     {
         for (auto const &board : ioBoards) {
             console.Log("Setting voltage level");
-            auto result = board->SetOutputVoltageValue(level, ProjCfg::Retry::CommandSendRetryNumber);
+            auto result = board->SetOutputVoltageValue(level, ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
 
             if (result != CommResult::Good) {
                 Task::DelayMs(100);
-                board->SetOutputVoltageValue(level, ProjCfg::Retry::CommandSendRetryNumber);
+                board->SetOutputVoltageValue(level, ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
             }
 
             Task::DelayMs(10);
@@ -252,7 +268,7 @@ class Apparatus {
                                       ConnectionAnalysis     analysis_type,
                                       bool                   sequential)
     {
-        auto result = board->SetVoltageAtPin(pin, ProjCfg::Retry::CommandSendRetryNumber);
+        auto result = board->SetVoltageAtPin(pin, ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
         if (result != CommResult::Good) {
             console.LogError("Setting pin voltage unsuccessful");
             return false;
@@ -407,7 +423,7 @@ class Apparatus {
         console.Log("Executing command: FindAndAnalyzeAllConnections");
 
         for (auto board : ioBoards) {
-            board->DisableOutput(ProjCfg::Retry::CommandSendRetryNumber);
+            board->DisableOutput(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
         }
 
         for (auto board : ioBoards) {
@@ -422,7 +438,8 @@ class Apparatus {
             return;
         }
 
-        auto [comm_result, counter_value] = (*board)->GetBoardCounterValue(ProjCfg::Retry::CommandSendRetryNumber);
+        auto [comm_result, counter_value] =
+          (*board)->GetBoardCounterValue(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
         std::string response_string;
 
         if (comm_result == CommResult::Good) {
@@ -466,7 +483,7 @@ class Apparatus {
             return;
         }
 
-        auto result = (*board)->GetInternalParameters(ProjCfg::Retry::CommandSendRetryNumber);
+        auto result = (*board)->GetInternalParameters(ProjCfg::FailHandle::CommandToBoardAttemptsNumber);
         if (result.first != CommResult::Good)
             return;
 
@@ -644,7 +661,6 @@ class Apparatus {
         }
     }
 
-
   private:
     Apparatus(std::shared_ptr<CommunicatorT> new_socket)
       : console{ "Main", ProjCfg::EnableLogForComponent::Main }
@@ -670,5 +686,5 @@ class Apparatus {
 
     std::shared_ptr<CommunicatorT> socket;
 
-    bool boardsChecked{ false };
+    bool boardsSearchPerformed{ false };
 };

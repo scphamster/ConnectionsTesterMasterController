@@ -72,9 +72,9 @@ enum Socket {
     EntryPortNumber = 1500
 };
 
-enum Retry {
+enum FailHandle {
     GetAllVoltagesRetryTimes = 3,
-    CommandSendRetryNumber                                 = 3,
+    CommandToBoardAttemptsNumber = 3,
 
 };
 
