@@ -141,7 +141,7 @@ class DataLink {
     auto constexpr static flushReadsMaxCount                   = 100;
     auto constexpr static valueIndicatesEmptyBoardOutputBuffer = 0xff;
     auto constexpr static delayBeforeCommandAckCheck           = ToUnderlying(ProjCfg::BoardsConfigs::DelayBeforeAcknowledgeCheckMs);
-    SmartLogger          logger;
+    Logger               logger;
     std::shared_ptr<IIC> driver;
     AddressT             boardAddress;
 };

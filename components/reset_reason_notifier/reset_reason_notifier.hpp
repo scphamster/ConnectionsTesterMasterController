@@ -41,5 +41,5 @@ class ResetReasonNotifier {
     }
 
   private:
-    SmartLogger console{ "ResetReason", ProjCfg::EnableLogForComponent::ResetReason };
+    Logger console{ "ResetReason", ProjCfg::EnableLogForComponent::ResetReason };
 };

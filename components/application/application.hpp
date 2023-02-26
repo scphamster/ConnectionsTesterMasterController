@@ -69,10 +69,7 @@ class Application {
         communicator = std::make_shared<Comm>(masterIP, ProjCfg::Socket::EntryPortNumber, toMasterSB, fromMasterMsgQ);
         communicator->run();
 
-        auto bluetooth_to_apparatusQ = std::make_shared<Queue<char>>(100, "from bluetooth");
-        Bluetooth::Create(Bluetooth::BasisMode::Classic, "esp hamster", bluetooth_to_apparatusQ);
-
-        Apparatus::Create(bluetooth_to_apparatusQ, communicator);
+        Apparatus::Create(communicator);
         apparatus = Apparatus::Get();
 
         commandManagerTask.Start();
@@ -98,7 +95,7 @@ class Application {
                 continue;
             }
 
-            using ID  = MessageFromMaster::Command::ID;
+            using ID = MessageFromMaster::Command::ID;
 
             auto cmd_id = msg->GetCommandID();
             switch (cmd_id) {
@@ -151,12 +148,16 @@ class Application {
 
             } break;
             case ID::DataLinkKeepAlive: {
-                //                to_master_sb->Send(CommandStatus(CommandStatus::Answer::KeepAliveMessage).Serialize());
                 console.Log("Keepalive");
             } break;
             case ID::EnableOutputForPin: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
                 apparatus->EnableOutputForPin(msg->cmd.enableOutputForPin.pinAffinityAndId);
+            } break;
+
+            case ID::DisableOutput: {
+                to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
+                apparatus->DisableOutput();
             } break;
             default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
             }
@@ -166,7 +167,7 @@ class Application {
   private:
     static std::shared_ptr<Application> _this;
 
-    SmartLogger console{ "Main", ProjCfg::EnableLogForComponent::Main };
+    Logger      console{ "Main", ProjCfg::EnableLogForComponent::Main };
     Task        mainTask{ [this]() { MainTask(); }, ProjCfg::MainStackSize, ProjCfg::MainPrio, "Main", false };
     Task        commandManagerTask{ [this]() { CommandManagerTask(); },
                              ProjCfg::Tasks::CommandManagerStackSize,

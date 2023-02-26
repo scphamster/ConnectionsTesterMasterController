@@ -177,7 +177,7 @@ class IIC {
     }
 
     std::shared_ptr<IIC> static _this;
-    SmartLogger logger;
+    Logger logger;
     // todo: make configurable
     auto static constexpr i2cModuleNum                  = 0;
     TickType_t static constexpr slaveOnLineCheckTimeout = 0;

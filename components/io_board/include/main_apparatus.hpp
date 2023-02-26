@@ -33,9 +33,9 @@ class Apparatus {
     using UserCommand        = typename CommandCatcher::UserCommand;
     using CommunicatorT      = Communicator<MessageToMaster>;
 
-    void static Create(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<CommunicatorT> socket) noexcept
+    void static Create(std::shared_ptr<CommunicatorT> socket) noexcept
     {
-        _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(input_queue), std::move(socket) } };
+        _this = std::shared_ptr<Apparatus>{ new Apparatus{ std::move(socket) } };
     }
     auto static Get() noexcept
     {
@@ -135,7 +135,9 @@ class Apparatus {
     void EnableOutputForPin(Board::PinAffinityAndId pin_affinity_and_id) noexcept {
         EnableOutputForPin(pin_affinity_and_id.boardAddress, pin_affinity_and_id.pinId);
     }
+    void DisableOutput() const noexcept {
 
+    }
     //     end new
 
   protected:
@@ -176,7 +178,7 @@ class Apparatus {
             if (board_found) {
                 console.Log("board with address:" + std::to_string(addr) + " was found");
                 ioBoards.emplace_back(std::make_shared<Board>(addr, pinsVoltagesResultsQ, seq_mutex));
-                boardsSemaphores.push_back(ioBoards.back()->GetStartSemaphore());
+                boardsSemaphores.push_back(ioBoards.back()->Get_MeasureAllTaskStart_Semaphore());
             }
         }
 
@@ -191,7 +193,7 @@ class Apparatus {
             auto [comm_result, counter_value] = board->GetBoardCounterValue(ProjCfg::Retry::CommandSendRetryNumber);
             board->SetOutputVoltageValue(OutputVoltageLevel::_07, ProjCfg::Retry::CommandSendRetryNumber);
 
-            auto result = board->CheckIfFirmwareVersionIsCompliant(ProjCfg::Retry::CommandSendRetryNumber);
+            auto result = board->CheckFWVersionCompliance(ProjCfg::Retry::CommandSendRetryNumber);
             if (result.first == CommResult::BadCommunication) {
                 console.LogError("Board with address " + std::to_string(board->GetAddress()) +
                                  " has problems with communication!");
@@ -228,7 +230,6 @@ class Apparatus {
 
         response.append("END\n");
 
-        bluetooth->Write(response);
         console.Log("response sent: " + response);
     }
     void SetOutputVoltageValue(OutputVoltageLevel level) noexcept
@@ -429,7 +430,6 @@ class Apparatus {
               "TIMER " + std::to_string(board_addr) + " dummyarg -> " + std::to_string(*counter_value) + " END\n";
         }
 
-        bluetooth->Write(response_string);
         console.Log(response_string);
     }
     std::optional<std::vector<OneBoardVoltages>> GetAllVoltages(bool sequential) noexcept
@@ -463,7 +463,6 @@ class Apparatus {
         auto board = FindBoardWithAddress(board_addr);
         if (!board) {
             console.LogError("requested board with addr:" + std::to_string(board_addr) + " does not exist!");
-            bluetooth->Write("bad board addr!");
             return;
         }
 
@@ -479,7 +478,6 @@ class Apparatus {
         answer.append(std::to_string(result.second->shuntResistance) + ' ');
         answer.append(std::to_string(result.second->outputVoltageLow) + ' ');
         answer.append(std::to_string(result.second->outputVoltageHigh) + " END\n");
-        bluetooth->Write(answer);
         console.Log(answer);
     }
     // helpers
@@ -646,159 +644,12 @@ class Apparatus {
         }
     }
 
-    // tasks
-    [[noreturn]] void CommandDirectorTask() noexcept
-    {
-        while (true) {
-            auto [command, args] = commandCatcher.WaitForCommand();
-
-            switch (command) {
-            case UserCommand::CheckConnections: {
-                if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, false);
-                else if (args.size() == 1)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::SimpleBoolean, true);
-                else {
-                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
-                                                 args.at(0),
-                                                 ConnectionAnalysis::SimpleBoolean,
-                                                 true);
-                }
-            } break;
-            case UserCommand::CheckVoltages: {
-                if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, false);
-                else if (args.size() == 1)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Voltage, true);
-                else {
-                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
-                                                 args.at(0),
-                                                 ConnectionAnalysis::Voltage,
-                                                 true);
-                }
-            } break;
-            case UserCommand::CheckResistances: {
-                if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, false);
-                else if (args.size() == 1)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Resistance, true);
-                else {
-                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
-                                                 args.at(0),
-                                                 ConnectionAnalysis::Resistance,
-                                                 true);
-                }
-            } break;
-            case UserCommand::CheckRaw: {
-                if (args.size() == 0)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, false);
-                else if (args.size() == 1)
-                    FindAndAnalyzeAllConnections(ConnectionAnalysis::Raw, true);
-                else {
-                    FindConnectionsForPinAtBoard(Board::GetLogicPinNumFromHarnessPinNum(args.at(1)),
-                                                 args.at(0),
-                                                 ConnectionAnalysis::Raw,
-                                                 true);
-                }
-            } break;
-            case UserCommand::EnableOutputForPin: {
-                EnableOutputForPin(args.at(0), args.at(1));
-            } break;
-            case UserCommand::GetAllBoardsIds: {
-                FindAllConnectedBoards();
-                SendAllBoardsIds();
-            } break;
-            case UserCommand::GetInternalCounter: {
-                GetBoardCounter(args.at(0));
-            } break;
-            case UserCommand::GetTaskStackWatermark: {
-                auto watermark = Task::GetStackWatermarkOfThisTask();
-                auto response  = "STACK dummyarg -> " + std::to_string(watermark) + " END\n";
-                bluetooth->Write(response);
-                console.Log(response);
-            } break;
-            case UserCommand::SetNewAddressForBoard:
-                if (args.size() == 1) {
-                    if (ioBoards.size() != 1) {
-                        bluetooth->Write("No, or more than one boards are connected, specify current address with first "
-                                         "argument: newaddress [current address] [new address]\n");
-                        console.LogError("No, or more than one boards are connected, specify current address with first "
-                                         "argument: newaddress [current address] [new address]\n");
-                    }
-
-                    auto result = ioBoards.at(0)->SetNewBoardAddress(args.at(0));
-
-                    if (result == CommResult::Good) {
-                        bluetooth->Write("CMD OK END\n");
-                    }
-                    else {
-                        bluetooth->Write("CMD FAIL END\n");
-                    }
-                }
-                else {
-                    auto board = FindBoardWithAddress(args.at(0));
-                    if (board) {
-                        auto result = (*board)->SetNewBoardAddress(args.at(1));
-                        if (result == CommResult::Good) {
-                            bluetooth->Write("CMD OK END\n");
-                        }
-                        else {
-                            bluetooth->Write("CMD FAIL END\n");
-                        }
-                    }
-                    else {
-                        bluetooth->Write("Board not found");
-                        console.LogError("Board not found");
-                    }
-                }
-                break;
-
-            case UserCommand::Test: UnitTestAllRead(); break;
-            case UserCommand::SetOutputVoltageLevel:
-                if (args.at(0) == 1)
-                    SetOutputVoltageValue(OutputVoltageLevel::_07);
-                else if (args.at(0) == 2)
-                    SetOutputVoltageValue(OutputVoltageLevel::_09);
-
-                break;
-
-            case UserCommand::SetInternalParameters:
-                if (ioBoards.size() != 1) {
-                    bluetooth->Write(
-                      "Boards count is not 1! Can change internal parameters with only 1 board connected!\n");
-                    console.LogError("Boards count is not 1!");
-                }
-                else {
-                    using InternalParamT = Board::SetInternalParametersCmd::InternalParamT;
-                    auto internals_args  = std::array<InternalParamT, Board::SetInternalParametersCmd::numberOfParams>{
-                        static_cast<InternalParamT>(args.at(0)), static_cast<InternalParamT>(args.at(1)),
-                        static_cast<InternalParamT>(args.at(2)), static_cast<InternalParamT>(args.at(3)),
-                        static_cast<InternalParamT>(args.at(4)), static_cast<InternalParamT>(args.at(5)),
-                        static_cast<InternalParamT>(args.at(6))
-                    };
-
-                    ioBoards.at(0)->SetInternalParameters(internals_args, ProjCfg::Retry::CommandSendRetryNumber);
-                }
-                break;
-
-            case UserCommand::GetInternalParameters: GetInternalParametersForBoard(args.at(0)); break;
-            default: break;
-            }
-        }
-    }
 
   private:
-    Apparatus(std::shared_ptr<Queue<char>> input_queue, std::shared_ptr<CommunicatorT> new_socket)
+    Apparatus(std::shared_ptr<CommunicatorT> new_socket)
       : console{ "Main", ProjCfg::EnableLogForComponent::Main }
       , pinsVoltagesResultsQ{ std::make_shared<QueueT>(10) }
-      , commandCatcher{ std::move(input_queue) }
       , socket{ std::move(new_socket) }
-      , bluetooth{ Bluetooth::Get() }
-      , measurementsTask{ [this]() { CommandDirectorTask(); },
-                          static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskStackSize),
-                          static_cast<size_t>(ProjCfg::Tasks::MainMeasurementsTaskPrio),
-                          "meas",
-                          true }
     {
         IIC::Create(IIC::Role::Master,
                     ProjCfg::BoardsConfigs::SDA_Pin,
@@ -806,24 +657,18 @@ class Apparatus {
                     ProjCfg::BoardsConfigs::IICSpeedHz);
         i2c = IIC::Get();
         Init();
-
-        measurementsTask.Start();
     }
 
     std::shared_ptr<Apparatus> static _this;
 
-    SmartLogger          console;
+    Logger               console;
     std::shared_ptr<IIC> i2c = nullptr;
 
     std::vector<std::shared_ptr<Board>>     ioBoards;
     std::vector<std::shared_ptr<Semaphore>> boardsSemaphores;
     std::shared_ptr<QueueT>                 pinsVoltagesResultsQ;
 
-    CommandCatcher                 commandCatcher;
     std::shared_ptr<CommunicatorT> socket;
-
-    std::shared_ptr<Bluetooth> bluetooth;
-    Task                       measurementsTask;
 
     bool boardsChecked{ false };
 };

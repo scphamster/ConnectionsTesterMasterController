@@ -341,7 +341,7 @@ class BluetoothSPP {
     std::string        deviceName;
     std::string        serverName;
 
-    SmartLogger                  logger;
+    Logger                       logger;
     Queue<SppTaskMsg>            sppQueue;
     Task                         sppReaderTask;
     Task                         writerTask;

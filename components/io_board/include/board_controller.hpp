@@ -36,7 +36,7 @@ class Board {
       std::array<PinNumT, pinCount>{ 6,  4,  2,  0,  9,  11, 13, 15, 22, 20, 18, 16, 25, 27, 29, 31,
                                      30, 28, 26, 24, 17, 19, 21, 23, 14, 12, 10, 8,  1,  3,  5,  7 };
 
-    std::pair<Byte, Byte> constexpr static ADDRESSES_ALLOWED_INCLUSIVE = {1, 127};
+    std::pair<Byte, Byte> constexpr static ADDRESSES_ALLOWED_INCLUSIVE = { 1, 127 };
 
     enum class Result {
         BadCommunication,
@@ -140,15 +140,14 @@ class Board {
         using InternalParamsT                    = std::array<InternalParamT, numberOfParams>;
     };
     struct GetInternalParametersCmd {
-        Byte static constexpr cmd                = 0xc9;
-        auto static constexpr delayForResponseMs = 200;
-        using InternalParamT = SetInternalParametersCmd::InternalParamT;
-        constexpr static InternalParamT STD_OUT_R = 1100;
-        constexpr static InternalParamT STD_IN_R = 210;
-        constexpr static InternalParamT STD_SHUNT_R = 330;
-        constexpr static InternalParamT STD_LOW_OUT_V = 700;
+        Byte static constexpr cmd                      = 0xc9;
+        auto static constexpr delayForResponseMs       = 200;
+        using InternalParamT                           = SetInternalParametersCmd::InternalParamT;
+        constexpr static InternalParamT STD_OUT_R      = 1100;
+        constexpr static InternalParamT STD_IN_R       = 210;
+        constexpr static InternalParamT STD_SHUNT_R    = 330;
+        constexpr static InternalParamT STD_LOW_OUT_V  = 700;
         constexpr static InternalParamT STD_HIGH_OUT_V = 900;
-
 
         struct InternalParamsT {
             using InternalParameterT = SetInternalParametersCmd::InternalParamT;
@@ -173,8 +172,8 @@ class Board {
       : dataLink{ board_hw_address }
       , console{ "IOBoard:" + std::to_string(board_hw_address) + "::", ProjCfg::EnableLogForComponent::IOBoards }
       , allPinsVoltagesTableQueue{ std::move(data_queue) }
-      , getAllPinsVoltagesSemaphore{ std::make_shared<Semaphore>() }
-      , sequentialRunMutex{ std::move(sequential_run_mutex) }
+      , measureAllTaskStart_Semaphore{ std::make_shared<Semaphore>() }
+      , voltageMeasurementMutex{ std::move(sequential_run_mutex) }
       , getAllPinsVoltagesTask([this]() { GetAllPinsVoltagesTask(); },
                                ProjCfg::Tasks::VoltageCheckTaskStackSize,
                                ProjCfg::Tasks::VoltageCheckTaskPio,
@@ -184,6 +183,7 @@ class Board {
         getAllPinsVoltagesTask.Start();
     }
 
+    // statics
     static PinNumT GetHarnessPinNumFromLogicPinNum(PinNumT logic_pin_num) noexcept
     {
         if (logic_pin_num > pinCount)
@@ -198,9 +198,29 @@ class Board {
 
         return harnessToLogicPinNumMapping.at(harness_pin_num);
     }
-    [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
-    [[nodiscard]] std::shared_ptr<Semaphore> GetStartSemaphore() const noexcept { return getAllPinsVoltagesSemaphore; }
-    Result                                   SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
+    static VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value) noexcept
+    {
+        VoltageT constexpr reference = 1.1;
+
+        return (static_cast<VoltageT>(adc_value) / 1024) * reference;
+    }
+
+    // utility methods
+    [[nodiscard]] ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value) noexcept
+    {
+        CircuitParamT constexpr output_resistance = 210;
+        CircuitParamT constexpr input_resistance  = 1100;
+        CircuitParamT constexpr shunt_resistance  = 330;
+
+        auto voltage            = CalculateVoltageFromAdcValue(adc_value);
+        auto circuit_current    = voltage / shunt_resistance;
+        auto overall_resistance = outVoltageRealValue / circuit_current;
+        auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance;
+        return test_resistance;
+    }
+
+    // setters
+    Result SetVoltageAtPin(PinNumT pin, int retry_times = 0) noexcept
     {
         auto result = SendCmd(ToUnderlying(Command::SetPinVoltage), CommandArgT{ static_cast<Byte>(pin) }, retry_times);
 
@@ -234,29 +254,6 @@ class Board {
         return SetVoltageAtPin(
           static_cast<std::underlying_type_t<VoltageSetCmd::Special>>(VoltageSetCmd::Special::DisableAll),
           retry_times);
-    }
-    bool StartTest(int retry_times = 0) noexcept
-    {
-        auto result = SendCmd(ToUnderlying(Command::StartTest), retry_times);
-        if (result != Result::Good) {
-            console.LogError("Test Start Unsuccessful!");
-        }
-
-        return false;
-    }
-    std::pair<Result, std::optional<bool>> CheckIfFirmwareVersionIsCompliant(int retry_times = 0) noexcept
-    {
-        auto res =
-          SendCmdAndReadResponse<Byte>(GetFirmwareVersion::cmd, GetFirmwareVersion::delayForResponseMs, retry_times);
-
-        if (res.first == Result::Good) {
-            if (res.second == GetFirmwareVersion::targetVersion)
-                return { res.first, true };
-            else
-                return { res.first, false };
-        }
-        else
-            return { res.first, std::nullopt };
     }
     Result SetInternalParameters(SetInternalParametersCmd::InternalParamsT params, int retry_times = 0) noexcept
     {
@@ -297,102 +294,6 @@ class Board {
         }
 
         return Result::Good;
-    }
-    std::pair<Result, std::optional<GetInternalParametersCmd::InternalParamsT>> GetInternalParameters(
-      int retry_times = 0) noexcept
-    {
-        auto send_result = SendCmd(GetInternalParametersCmd::cmd);
-
-        if (send_result != Result::Good) {
-            console.LogError("GetInternals::send result is not good!");
-        }
-
-        Task::DelayMs(GetInternalParametersCmd::delayForResponseMs);
-
-        auto read_result = ReadResponse<std::array<uint16_t, SetInternalParametersCmd::numberOfParams>>();
-
-        if (read_result.first != Result::Good) {
-            console.LogError("GetInternalParams::bad read:" + std::to_string(ToUnderlying(read_result.first)));
-            return { read_result.first, std::nullopt };
-        }
-
-        GetInternalParametersCmd::InternalParamsT retval;
-        retval.inputResistance1  = read_result.second->at(0);
-        retval.outputResistance1 = read_result.second->at(1);
-        retval.inputResistance2  = read_result.second->at(2);
-        retval.outputResistance2 = read_result.second->at(3);
-        retval.shuntResistance   = read_result.second->at(4);
-        retval.outputVoltageLow  = read_result.second->at(5);
-        retval.outputVoltageHigh = read_result.second->at(6);
-
-        return { read_result.first, retval };
-    }
-    static VoltageT CalculateVoltageFromAdcValue(Board::ADCValueT adc_value) noexcept
-    {
-        VoltageT constexpr reference = 1.1;
-
-        return (static_cast<VoltageT>(adc_value) / 1024) * reference;
-    }
-    ResistanceT CalculateConnectionResistanceFromAdcValue(Board::ADCValueT adc_value) noexcept
-    {
-        CircuitParamT constexpr output_resistance = 210;
-        CircuitParamT constexpr input_resistance  = 1100;
-        CircuitParamT constexpr shunt_resistance  = 330;
-
-        auto voltage            = CalculateVoltageFromAdcValue(adc_value);
-        auto circuit_current    = voltage / shunt_resistance;
-        auto overall_resistance = outVoltageRealValue / circuit_current;
-        auto test_resistance    = overall_resistance - output_resistance - input_resistance - shunt_resistance;
-        return test_resistance;
-    }
-
-    std::pair<Result, std::optional<InternalCounterT>> GetBoardCounterValue(int retry_times = 0) noexcept
-    {
-        auto [comm_result, response] =
-          SendCmdAndReadResponse<InternalCounterT>(GetInternalCounter::command,
-                                                   GetInternalCounter::delayBeforeResultCheck,
-                                                   retry_times);
-
-        if (comm_result != Result::Good) {
-            console.LogError("Get counter value command not succeeded");
-            return { comm_result, std::nullopt };
-        }
-
-        if (*response == UINT32_MAX or *response == 0) {
-            console.LogError("Board did not answer properly for GetInternalCounter command, result is:" +
-                             std::to_string(*response));
-            return { Result::UnhealthyAnswerValue, std::nullopt };
-        }
-
-        return { comm_result, response };
-    }
-    std::pair<Result, std::optional<ADCValueT>> GetPinVoltage(Byte pin, int retry_times = 0) noexcept
-    {
-        auto [comm_result, response] = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
-                                                                         CommandArgT{ pin },
-                                                                         VoltageCheckCmd::timeToWaitForResponseOnePinMs,
-                                                                         retry_times);
-
-        if (comm_result != Result::Good) {
-            console.LogError("Voltage check command for pin " + std::to_string(pin) + " unsuccessful");
-            return { comm_result, std::nullopt };
-        }
-
-        return { comm_result, response };
-    }
-    std::pair<Result, std::optional<AllPinsVoltages8B>> GetAllPinsVoltages(int retry_times = 0) noexcept
-    {
-        auto [comm_result, voltages] =
-          SendCmdAndReadResponse<AllPinsVoltages8B>(static_cast<Byte>(Command::GetPinVoltage),
-                                                    CommandArgT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
-                                                    VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
-
-        if (comm_result != Result::Good) {
-            console.LogError("Reading all pins voltages unsuccessful");
-            return { comm_result, std::nullopt };
-        }
-
-        return { comm_result, voltages };
     }
     Result SetNewBoardAddress(AddressT new_address)
     {
@@ -462,7 +363,120 @@ class Board {
         }
     }
 
-    std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
+    // getters: result obtained from board
+    [[nodiscard]] std::pair<Result, std::optional<GetInternalParametersCmd::InternalParamsT>> GetInternalParameters(
+      int retry_times = 0) noexcept
+    {
+        auto send_result = SendCmd(GetInternalParametersCmd::cmd);
+
+        if (send_result != Result::Good) {
+            console.LogError("GetInternals::send result is not good!");
+        }
+
+        Task::DelayMs(GetInternalParametersCmd::delayForResponseMs);
+
+        auto read_result = ReadResponse<std::array<uint16_t, SetInternalParametersCmd::numberOfParams>>();
+
+        if (read_result.first != Result::Good) {
+            console.LogError("GetInternalParams::bad read:" + std::to_string(ToUnderlying(read_result.first)));
+            return { read_result.first, std::nullopt };
+        }
+
+        GetInternalParametersCmd::InternalParamsT retval;
+        retval.inputResistance1  = read_result.second->at(0);
+        retval.outputResistance1 = read_result.second->at(1);
+        retval.inputResistance2  = read_result.second->at(2);
+        retval.outputResistance2 = read_result.second->at(3);
+        retval.shuntResistance   = read_result.second->at(4);
+        retval.outputVoltageLow  = read_result.second->at(5);
+        retval.outputVoltageHigh = read_result.second->at(6);
+
+        return { read_result.first, retval };
+    }
+    [[nodiscard]] std::pair<Result, std::optional<InternalCounterT>> GetBoardCounterValue(int retry_times = 0) noexcept
+    {
+        auto [comm_result, response] =
+          SendCmdAndReadResponse<InternalCounterT>(GetInternalCounter::command,
+                                                   GetInternalCounter::delayBeforeResultCheck,
+                                                   retry_times);
+
+        if (comm_result != Result::Good) {
+            console.LogError("Get counter value command not succeeded");
+            return { comm_result, std::nullopt };
+        }
+
+        if (*response == UINT32_MAX or *response == 0) {
+            console.LogError("Board did not answer properly for GetInternalCounter command, result is:" +
+                             std::to_string(*response));
+            return { Result::UnhealthyAnswerValue, std::nullopt };
+        }
+
+        return { comm_result, response };
+    }
+    [[nodiscard]] std::pair<Result, std::optional<ADCValueT>> GetPinVoltage(Byte pin, int retry_times = 0) noexcept
+    {
+        auto [comm_result, response] = SendCmdAndReadResponse<ADCValueT>(static_cast<Byte>(Command::GetPinVoltage),
+                                                                         CommandArgT{ pin },
+                                                                         VoltageCheckCmd::timeToWaitForResponseOnePinMs,
+                                                                         retry_times);
+
+        if (comm_result != Result::Good) {
+            console.LogError("Voltage check command for pin " + std::to_string(pin) + " unsuccessful");
+            return { comm_result, std::nullopt };
+        }
+
+        return { comm_result, response };
+    }
+    [[nodiscard]] std::pair<Result, std::optional<AllPinsVoltages8B>> GetAllPinsVoltages(int retry_times = 0) noexcept
+    {
+        auto [comm_result, voltages] =
+          SendCmdAndReadResponse<AllPinsVoltages8B>(static_cast<Byte>(Command::GetPinVoltage),
+                                                    CommandArgT{ VoltageCheckCmd::SpecialMeasurements::MeasureAll },
+                                                    VoltageCheckCmd::timeToWaitForResponseAllPinsMs);
+
+        if (comm_result != Result::Good) {
+            console.LogError("Reading all pins voltages unsuccessful");
+            return { comm_result, std::nullopt };
+        }
+
+        return { comm_result, voltages };
+    }
+    [[nodiscard]] std::pair<Result, std::optional<bool>> CheckFWVersionCompliance(int retry_times = 0) noexcept
+    {
+        auto res =
+          SendCmdAndReadResponse<Byte>(GetFirmwareVersion::cmd, GetFirmwareVersion::delayForResponseMs, retry_times);
+
+        if (res.first == Result::Good) {
+            if (res.second == GetFirmwareVersion::targetVersion)
+                return { res.first, true };
+            else
+                return { res.first, false };
+        }
+        else
+            return { res.first, std::nullopt };
+    }
+
+    //getters: result obtained immediately from this
+    [[nodiscard]] bool          IsHealthy() const noexcept { return isHealthy; }
+    [[nodiscard]] bool          OutputIsEnabled() const noexcept { return outputIsEnabled; }
+    [[nodiscard]] OutputVoltage GetOutputVoltageLevel() const noexcept { return outputVoltageLevel; }
+    [[nodiscard]] std::shared_ptr<Semaphore> Get_MeasureAllTaskStart_Semaphore() const noexcept
+    {
+        return measureAllTaskStart_Semaphore;
+    }
+    [[nodiscard]] AddressT                   GetAddress() const noexcept { return dataLink.GetAddress(); }
+
+    // tests
+    bool StartTest(int retry_times = 0) noexcept
+    {
+        auto result = SendCmd(ToUnderlying(Command::StartTest), retry_times);
+        if (result != Result::Good) {
+            console.LogError("Test Start Unsuccessful!");
+        }
+
+        return false;
+    }
+    [[nodiscard]] std::optional<std::vector<Byte>> UnitTestCommunication(auto const &data) noexcept
     {
         auto response = dataLink.UnitTestCommunication(data);
 
@@ -490,10 +504,12 @@ class Board {
         return response;
     }
 
-    OutputVoltage GetOutputVoltageLevel() const noexcept { return outputVoltageLevel; }
-    bool          IsHealthy() const noexcept { return isHealthy; }
-
   protected:
+    struct CommunicationsConfigs {
+        auto constexpr static waitToRepeatAfterBadAckMs = 200;
+    };
+
+    // commanders
     Result SendCmd(Byte cmd, CommandArgT args, int retry_times = 0) noexcept
     {
         int retry_counter = 0;
@@ -571,17 +587,17 @@ class Board {
     [[noreturn]] void GetAllPinsVoltagesTask() noexcept
     {
         while (true) {
-            getAllPinsVoltagesSemaphore->Take_BlockInfinitely();
+            measureAllTaskStart_Semaphore->Take_BlockInfinitely();
 
             {
-                sequentialRunMutex->lock();
+                voltageMeasurementMutex->lock();
                 auto [comm_result, voltages] = GetAllPinsVoltages();
 
                 if (comm_result != Result::Good) {
                     allPinsVoltagesTableQueue->Send(
                       OneBoardVoltages{ comm_result, dataLink.GetAddress(), AllPinsVoltages8B{} });
 
-                    sequentialRunMutex->unlock();
+                    voltageMeasurementMutex->unlock();
                     continue;
                 }
 
@@ -605,37 +621,29 @@ class Board {
                 }
 
                 if (operation_result != Result::Good) {
-                    sequentialRunMutex->unlock();
+                    voltageMeasurementMutex->unlock();
                     continue;
                 }
 
                 operation_result = Result::Good;
                 allPinsVoltagesTableQueue->Send(OneBoardVoltages{ operation_result, dataLink.GetAddress(), *voltages });
-                sequentialRunMutex->unlock();
+                voltageMeasurementMutex->unlock();
             }
         }
     }
 
   private:
-    struct ReturnType {
-        uint32_t someInt;
-        uint32_t secondInt;
-        float    someFloat;
-    };
-    struct CommunicationsConfigs {
-        auto constexpr static waitToRepeatAfterBadAckMs = 200;
-    };
-
     DataLink    dataLink;
-    SmartLogger console;
+    Logger      console;
 
     std::shared_ptr<VoltagesQ> allPinsVoltagesTableQueue;
-    std::shared_ptr<Semaphore> getAllPinsVoltagesSemaphore;
-    std::shared_ptr<Mutex>     sequentialRunMutex;
+    std::shared_ptr<Semaphore> measureAllTaskStart_Semaphore;
+    std::shared_ptr<Mutex>     voltageMeasurementMutex;
 
     Task getAllPinsVoltagesTask;
 
     OutputVoltageRealT outVoltageRealValue = ProjCfg::DEFAULT_OUTPUT_VOLTAGE_VALUE;
     OutputVoltage      outputVoltageLevel  = OutputVoltage::_07;
     bool               isHealthy{ true };
+    bool               outputIsEnabled{ false };
 };

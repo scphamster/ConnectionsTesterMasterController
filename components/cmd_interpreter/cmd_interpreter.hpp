@@ -267,7 +267,7 @@ class CommandInterpreter {
     }
 
   private:
-    SmartLogger                     console;
+    Logger                          console;
     std::shared_ptr<Queue<char>>    fromUserInputQ;
     std::shared_ptr<MasterDataLink> dataLink;
 };

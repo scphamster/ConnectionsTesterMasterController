@@ -227,7 +227,7 @@ class Communicator {
     }
 
   private:
-    SmartLogger console{ "socket", ProjCfg::EnableLogForComponent::Socket };
+    Logger console{ "socket", ProjCfg::EnableLogForComponent::Socket };
 
     asio::ip::address_v4 masterIP;
     PortNumT             currentSocketPort;

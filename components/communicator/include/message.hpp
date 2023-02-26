@@ -28,6 +28,7 @@ class MessageFromMaster {
             GetInternalParameters,
             Test,
             DataLinkKeepAlive,
+            DisableOutput,
             Unknown
         };
         using Bytes    = std::vector<Byte>;
@@ -91,6 +92,7 @@ class MessageFromMaster {
 
             Board::PinAffinityAndId pinAffinityAndId;
         };
+        struct DisableOutput { };
 
         Command(std::vector<Byte> const &bytes)
         {
@@ -103,6 +105,7 @@ class MessageFromMaster {
             case ID::DataLinkKeepAlive: keepAlive = KeepAliveMessage{}; break;
             case ID::CheckConnections: checkConnections = CheckConnections{ bytes.cbegin() + 1 }; break;
             case ID::EnableOutputForPin: enableOutputForPin = EnableOutputForPin{ bytes.cbegin() + 1 }; break;
+            case ID::DisableOutput: disableOutput = DisableOutput{}; break;
 
             default: throw std::system_error(std::error_code(), "Unimplemented command id: " + std::to_string(msg_id));
             };
@@ -114,6 +117,7 @@ class MessageFromMaster {
         KeepAliveMessage   keepAlive;
         CheckConnections   checkConnections;
         EnableOutputForPin enableOutputForPin;
+        DisableOutput      disableOutput;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -121,10 +125,11 @@ class MessageFromMaster {
       , commandID{ bytes.at(0) }
     { }
 
-    Command::ID                  GetCommandID() const noexcept { return commandID; }
+    Command::ID GetCommandID() const noexcept { return commandID; }
 
     Command     cmd;
     Command::ID commandID{};
+
   private:
 };
 

@@ -192,7 +192,7 @@ class Bluetooth {
     }
 
     std::shared_ptr<Bluetooth> static _this;
-    SmartLogger logger;
+    Logger      logger;
     BasisMode   basisMode;
     DeviceNameT deviceName;
 

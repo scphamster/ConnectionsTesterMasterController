@@ -45,9 +45,9 @@ class EspLogger {
     Mutex mutable writeMutex;
 };
 
-class SmartLogger {
+class Logger {
   public:
-    SmartLogger(std::string new_tag, ProjCfg::EnableLogForComponent component_logging_enabled)
+    Logger(std::string new_tag, ProjCfg::EnableLogForComponent component_logging_enabled)
       : tag{ new_tag }
       , console{ EspLogger::Get() }
       , isEnabled{ static_cast<bool>(component_logging_enabled) }
