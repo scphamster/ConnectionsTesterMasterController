@@ -125,7 +125,7 @@ class Board {
     };
     struct GetInternalCounter {
         Byte static constexpr command                  = ToUnderlying(Command::GetInternalCounter);
-        size_t static constexpr delayBeforeResultCheck = 100;
+        size_t static constexpr delayBeforeResultCheck = 50;
     };
     struct GetFirmwareVersion {
         Byte static constexpr cmd                = 0xc7;
@@ -178,6 +178,7 @@ class Board {
                                ProjCfg::Tasks::VoltageCheckTaskStackSize,
                                ProjCfg::Tasks::VoltageCheckTaskPio,
                                "board" + std::to_string(board_hw_address),
+                               ProjCfg::Tasks::DefaultTasksCore,
                                true)
     {
         getAllPinsVoltagesTask.Start();

@@ -101,23 +101,22 @@ class Application {
             switch (cmd_id) {
             case ID::GetBoards: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
-                console.Log("FromMasterCMD: Get boards");
+                console.Log("FromMasterCMD: Get boards " + std::to_string(msg->cmd.getBoards.performRescan));
 
-                auto boards_info = apparatus->GetBoards();
+                auto boards_info = apparatus->GetBoards(msg->cmd.getBoards.performRescan);
                 if (boards_info == std::nullopt) {
-                    to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
-                    break;
+                    console.LogError("Get boards command failed!");
+                    continue;
                 }
-                else {
-                    auto bytes   = BoardsInfo(std::move(*boards_info)).Serialize();
-                    int  counter = 0;
-                    for (auto const &byte : bytes) {
-                        console.Log(std::to_string(counter) + ":" + std::to_string(byte));
-                        counter++;
-                    }
-                    to_master_sb->Send(std::move(bytes));
-                    console.Log("CMT: response with boards sent!");
+
+                auto bytes       = BoardsInfo(std::move(*boards_info)).Serialize();
+                int  counter     = 0;
+                for (auto const &byte : bytes) {
+                    console.Log(std::to_string(counter) + ":" + std::to_string(byte));
+                    counter++;
                 }
+                to_master_sb->Send(std::move(bytes));
+                console.Log("CMT: response with boards sent!");
             } break;
             case ID::MeasureAll: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
@@ -148,6 +147,7 @@ class Application {
 
             } break;
             case ID::DataLinkKeepAlive: {
+                to_master_sb->Send(KeepAlive().Serialize());
                 console.Log("Keepalive");
             } break;
             case ID::EnableOutputForPin: {
@@ -159,6 +159,8 @@ class Application {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
                 apparatus->DisableOutput();
             } break;
+
+            case ID::Dummy: to_master_sb->Send(Dummy{}.Serialize()); break;
             default: console.LogError("Unhandled command arrived! " + std::to_string(ToUnderlying(cmd_id))); break;
             }
         }
@@ -167,13 +169,11 @@ class Application {
   private:
     static std::shared_ptr<Application> _this;
 
-    Logger      console{ "Main", ProjCfg::EnableLogForComponent::Main };
-    Task        mainTask{ [this]() { MainTask(); }, ProjCfg::MainStackSize, ProjCfg::MainPrio, "Main", false };
-    Task        commandManagerTask{ [this]() { CommandManagerTask(); },
-                             ProjCfg::Tasks::CommandManagerStackSize,
-                             ProjCfg::Tasks::CommandManagerPrio,
-                             "CommandManager",
-                             true };
+    Logger console{ "Main", ProjCfg::EnableLogForComponent::Main };
+    Task   mainTask{ [this]() { MainTask(); }, ProjCfg::MainStackSize, ProjCfg::MainPrio, "Main", false };
+    Task   commandManagerTask{ [this]() { CommandManagerTask(); }, ProjCfg::Tasks::CommandManagerStackSize,
+                             ProjCfg::Tasks::CommandManagerPrio, "CommandManager",
+                             ProjCfg::Tasks::DefaultTasksCore,   true };
 
     asio::ip::address_v4 masterIP;
 

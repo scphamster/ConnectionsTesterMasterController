@@ -21,7 +21,7 @@ enum BoardsConfigs {
     NumberOfPins                                           = 32,
     MinAddress                                             = 1,
     MaxAddress                                             = 127,
-    DelayBeforeCheckOfInternalCounterAfterInitializationMs = 200,
+    DelayBeforeCheckOfInternalCounterAfterInitializationMs = 100,
     PinConnectionsCheckRetryCount                          = 5,
     DelayBeforeAcknowledgeCheckMs                          = 1,
     DelayAfterPinVoltageSetMs                              = 1,
@@ -35,19 +35,19 @@ constexpr float HIGH_OUTPUT_VOLTAGE_VALUE    = 0.92f;
 constexpr float DEFAULT_OUTPUT_VOLTAGE_VALUE = LOW_OUTPUT_VOLTAGE_VALUE;
 
 enum Tasks {
-    VoltageCheckTaskPio           = 6,
-    VoltageCheckTaskStackSize     = 4000,
-    MainMeasurementsTaskPrio      = 5,
-    MainMeasurementsTaskStackSize = 5000,
-    CommunicatorWritePrio         = 5,
-    CommunicatorReadPrio          = 5,
-    CommunicatorWriteStackSize    = 3000,
-    CommunicatorReadTaskSize      = 6000,
-    MainStackSize = 4096,
-    MainPrio = 1,
-    CommandManagerStackSize = 4096,
-    CommandManagerPrio = 2,
-
+    DefaultTasksCore           = 0,
+    VoltageCheckTaskPio        = 7,
+    VoltageCheckTaskStackSize  = 4096,
+    CommunicatorWritePrio      = 5,
+    CommunicatorWriteStackSize = 4096,
+    CommunicatorWriteTaskCore  = 0,
+    CommunicatorReadPrio       = 6,
+    CommunicatorReadTaskSize   = 8192,
+    CommunicatorReadTaskCore   = 1,
+    MainStackSize              = 4096,
+    MainPrio                   = 1,
+    CommandManagerStackSize    = 4096,
+    CommandManagerPrio         = 5,
 };
 
 enum class EnableLogForComponent : bool {
@@ -58,7 +58,7 @@ enum class EnableLogForComponent : bool {
     BluettothMain      = false,
     CommandInterpreter = false,
     Socket             = true,
-    ResetReason = true
+    ResetReason        = true
 };
 enum Log {
     LogAllErrors = true
@@ -73,9 +73,8 @@ enum Socket {
 };
 
 enum FailHandle {
-    GetAllVoltagesRetryTimes = 3,
+    GetAllVoltagesRetryTimes     = 3,
     CommandToBoardAttemptsNumber = 3,
-
 };
 
 uint8_t const static high_voltage_reference_select_pin = 20;

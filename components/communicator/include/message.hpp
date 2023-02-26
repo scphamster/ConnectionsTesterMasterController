@@ -29,6 +29,7 @@ class MessageFromMaster {
             Test,
             DataLinkKeepAlive,
             DisableOutput,
+            Dummy,
             Unknown
         };
         using Bytes    = std::vector<Byte>;
@@ -59,7 +60,17 @@ class MessageFromMaster {
             Byte boardAffinity;
             Byte pinNumber;
         };
-        struct GetBoardsInfo { };
+        struct GetBoardsInfo {
+            GetBoardsInfo(Iterator it)
+            {
+                if (*it == 1)
+                    performRescan = true;
+                else
+                    performRescan = false;
+            }
+
+            bool performRescan = false;
+        };
         struct CheckConnections {
             CheckConnections(std::vector<Byte>::const_iterator byte_it)
             {
@@ -93,6 +104,7 @@ class MessageFromMaster {
             Board::PinAffinityAndId pinAffinityAndId;
         };
         struct DisableOutput { };
+        struct Dummy { };
 
         Command(std::vector<Byte> const &bytes)
         {
@@ -101,11 +113,12 @@ class MessageFromMaster {
             switch (static_cast<ID>(msg_id)) {
             case ID::MeasureAll: measureAll = MeasureAll(); break;
             case ID::SetOutputVoltageLevel: setVLvl = SetVoltageLevel{ bytes.at(1) }; break;
-            case ID::GetBoards: getBoards = GetBoardsInfo{}; break;
+            case ID::GetBoards: getBoards = GetBoardsInfo{bytes.cbegin() + 1}; break;
             case ID::DataLinkKeepAlive: keepAlive = KeepAliveMessage{}; break;
             case ID::CheckConnections: checkConnections = CheckConnections{ bytes.cbegin() + 1 }; break;
             case ID::EnableOutputForPin: enableOutputForPin = EnableOutputForPin{ bytes.cbegin() + 1 }; break;
             case ID::DisableOutput: disableOutput = DisableOutput{}; break;
+            case ID::Dummy: dummy = Dummy{}; break;
 
             default: throw std::system_error(std::error_code(), "Unimplemented command id: " + std::to_string(msg_id));
             };
@@ -118,6 +131,7 @@ class MessageFromMaster {
         CheckConnections   checkConnections;
         EnableOutputForPin enableOutputForPin;
         DisableOutput      disableOutput;
+        Dummy              dummy;
     };
 
     MessageFromMaster(const std::vector<Byte> &bytes)
@@ -294,47 +308,63 @@ class AllBoardsVoltages final : MessageToMaster {
     std::vector<Board::OneBoardVoltages> boardsVoltages;
 };
 
-class Status final : MessageToMaster {
+// class Status final : MessageToMaster {
+//   public:
+//     enum class StatusValue : Byte {
+//         Initializing = 0,
+//         Operating,
+//     };
+//
+//     enum class WiFiStatus : Byte {
+//         Disabled,
+//         Connecting,
+//         Connected,
+//         FailedAuth,
+//         UnknownFail
+//     };
+//
+//     enum class BTStatus : Byte {
+//         Disabled,
+//         Connecting,
+//         Connected,
+//         NoConnection,
+//         UnknownFail
+//     };
+//
+//     enum class BoardsStatus : Byte {
+//         Searching,
+//         NoBoardsFound,
+//         OldFirmwareBoardFound,
+//         AtLeastOneBoardFound,
+//         VeryUnhealthyConnection   // if controller reaches failed messages count this flag is set
+//     };
+//
+//     std::vector<Byte> Serialize() noexcept final
+//     {
+//         return std::vector{ ToUnderlying(status), ToUnderlying(wifi), ToUnderlying(bt), ToUnderlying(boards) };
+//     }
+//
+//   private:
+//     auto constexpr static BYTES_SIZE = 4;
+//     //    constexpr static Byte MSG_ID     = 53;
+//     StatusValue  status{ StatusValue::Initializing };
+//     WiFiStatus   wifi{};
+//     BTStatus     bt{ BTStatus::Disabled };
+//     BoardsStatus boards{ BoardsStatus::Searching };
+// };
+
+class Dummy final : MessageToMaster {
   public:
-    enum class StatusValue : Byte {
-        Initializing = 0,
-        Operating,
-    };
-
-    enum class WiFiStatus : Byte {
-        Disabled,
-        Connecting,
-        Connected,
-        FailedAuth,
-        UnknownFail
-    };
-
-    enum class BTStatus : Byte {
-        Disabled,
-        Connecting,
-        Connected,
-        NoConnection,
-        UnknownFail
-    };
-
-    enum class BoardsStatus : Byte {
-        Searching,
-        NoBoardsFound,
-        OldFirmwareBoardFound,
-        AtLeastOneBoardFound,
-        VeryUnhealthyConnection   // if controller reaches failed messages count this flag is set
-    };
-
-    std::vector<Byte> Serialize() noexcept final
-    {
-        return std::vector{ ToUnderlying(status), ToUnderlying(wifi), ToUnderlying(bt), ToUnderlying(boards) };
-    }
+    std::vector<Byte> Serialize() noexcept final { return { MSG_ID }; }
 
   private:
-    auto constexpr static BYTES_SIZE = 4;
-    //    constexpr static Byte MSG_ID     = 53;
-    StatusValue  status{ StatusValue::Initializing };
-    WiFiStatus   wifi{};
-    BTStatus     bt{ BTStatus::Disabled };
-    BoardsStatus boards{ BoardsStatus::Searching };
+    constexpr static Byte MSG_ID = 54;
+};
+
+class KeepAlive final : MessageToMaster {
+  public:
+    std::vector<Byte> Serialize() noexcept final { return { MSG_ID }; }
+
+  private:
+    constexpr static Byte MSG_ID = 55;
 };

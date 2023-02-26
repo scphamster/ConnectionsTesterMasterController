@@ -51,8 +51,12 @@ class Apparatus {
     }
 
     [[nodiscard]] bool                                    BoardsSearchPerformed() const noexcept { return boardsSearchPerformed; }
-    std::optional<std::vector<Board::Info>> GetBoards() noexcept
+    std::optional<std::vector<Board::Info>> GetBoards(bool perform_rescan = false) noexcept
     {
+        if (perform_rescan) {
+            FindAllConnectedBoards();
+        }
+
         if (ioBoards.empty())
             return std::vector<Board::Info>();
 
@@ -182,7 +186,7 @@ class Apparatus {
 
         ioBoards.clear();
 
-        Task::DelayMs(100);
+        Task::DelayMs(50);
 
         auto seq_mutex = std::make_shared<Mutex>();
 

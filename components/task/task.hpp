@@ -15,19 +15,19 @@ class Task {
     using TaskFunctor = std::function<void()>;
     using TimeT       = portTickType;
     using TickT       = portTickType;
-    using CoreNumT    = size_t;
+    using CoreNumT    = BaseType_t;
     enum {
         TaskCreationSucceeded = pdPASS
     };
     Task(TaskFunctor &&new_functor,
-         size_t        stacksize,
+         size_t        stackSize,
          size_t        new_priority,
          std::string   new_name,
          CoreNumT      runs_on_core,
          bool          suspended = false)
       : functor{ std::move(new_functor) }
       , name{ std::move(new_name) }
-      , stackSize{ stacksize }
+      , stackSize{ stackSize }
       , priority{ new_priority }
       , core{ runs_on_core }
     {
@@ -40,6 +40,8 @@ class Task {
 
     Task(Task const &)            = delete;
     Task &operator=(Task const &) = delete;
+    Task(Task &&)                 = default;
+    Task &operator=(Task &&)      = default;
     ~Task() noexcept { DeleteTask(); }
 
     void Reset() noexcept
@@ -126,7 +128,7 @@ class Task {
     }
 
   private:
-    TaskHandle_t taskHandle;
+    TaskHandle_t taskHandle{ nullptr };
     TaskFunctor  functor;
 
     std::string name;

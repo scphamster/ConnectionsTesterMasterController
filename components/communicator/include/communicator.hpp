@@ -34,11 +34,13 @@ class Communicator {
                   ProjCfg::Tasks::CommunicatorWriteStackSize,
                   ProjCfg::Tasks::CommunicatorWritePrio,
                   "write",
+                  ProjCfg::Tasks::CommunicatorWriteTaskCore,
                   true)
       , readTask([this]() { ReadTask(); },
                  ProjCfg::Tasks::CommunicatorReadTaskSize,
                  ProjCfg::Tasks::CommunicatorReadPrio,
                  "read",
+                 ProjCfg::Tasks::CommunicatorReadTaskCore,
                  true)
     { }
 
@@ -146,12 +148,9 @@ class Communicator {
                 console.LogError("Invalid argument exception when creating message from master: " +
                                  std::string(exception.what()));
 
-
-            }
-            catch(std::system_error &e) {
+            } catch (std::system_error &e) {
                 console.LogError(e.what());
-            }
-            catch (...) {
+            } catch (...) {
                 console.LogError("Unknown error when creating MessageFromMaster");
                 continue;
             }
