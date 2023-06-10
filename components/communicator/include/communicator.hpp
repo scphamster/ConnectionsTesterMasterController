@@ -57,9 +57,10 @@ class Communicator {
 
         currentSocketPort = *working_port;
 
-        console.Log("Working port: " + std::to_string(currentSocketPort));
+        console.Log("Obtained working port! Port id: " + std::to_string(currentSocketPort));
         ConfirmOperation(true);
 
+        // close entry port to open new one with port number obtained before
         socket->shutdown(asio::socket_base::shutdown_type::shutdown_both);
         socket->close();
 
@@ -70,7 +71,7 @@ class Communicator {
             try {
                 socket->connect(*endpoint, err_code);
             } catch (asio::system_error &err) {
-                console.OnFatalErrorTermination("error upon connection: " + err.code().message());
+                console.OnFatalErrorTermination("Error upon connection to working port: " + err.code().message());
                 continue;
             } catch (...) {
                 console.LogError("Unexpected error caught while connecting to working port: " + currentSocketPort);
@@ -81,7 +82,8 @@ class Communicator {
         }
 
         if (!err_code) {
-            console.Log("Connected!");
+            console.Log("Connected to working socket! Port: " + std::to_string(currentSocketPort));
+            console.Log("Starting write and read tasks!");
 
             writeTask.Start();
             readTask.Start();
@@ -106,7 +108,7 @@ class Communicator {
             auto bytes_to_be_sent = toMasterSB->Receive();
 
             if (bytes_to_be_sent == std::nullopt) {
-                console.LogError("message to be sent is unhealthy!");
+                console.LogError("Message to be sent to master is unhealthy! Failed to obtain message len");
                 continue;
             }
 
@@ -117,6 +119,7 @@ class Communicator {
             console.Log(std::to_string(message_size) + " bytes sent to master!");
         }
     }
+
     [[noreturn]] void ReadTask() noexcept
     {
         auto message_size_buffer = int{};
@@ -125,8 +128,9 @@ class Communicator {
 
         while (true) {
             asio::read(*socket, asio::buffer(&message_size_buffer, sizeof(message_size_buffer)), err_code);
+
             if (err_code)
-                console.OnFatalErrorTermination("error reading message size!" + err_code.message());
+                console.OnFatalErrorTermination("Failed to get the size of message from master! Err:  " + err_code.message());
 
             auto message_size   = message_size_buffer;
             auto bytes_read_num = asio::read(*socket,
@@ -141,7 +145,7 @@ class Communicator {
             }
 
             if (err_code) {
-                console.OnFatalErrorTermination("error during message body reading: " + err_code.message());
+                console.OnFatalErrorTermination("Failed to get message from master! Err: " + err_code.message());
             }
 
             try {
@@ -152,16 +156,16 @@ class Communicator {
                 }
 
                 auto msg = MessageFromMaster(std::vector<Byte>(main_buffer.begin(), main_buffer.end()));
-                console.Log("New successful creation of messageFromMaster!");
+                console.Log("New message from master obtained! ID: " + std::to_string(ToUnderlying(msg.GetCommandID())));
                 fromMasterCommandsQ->Send(msg);
             } catch (const std::invalid_argument &exception) {
-                console.LogError("Invalid argument exception when creating message from master: " +
+                console.LogError("Invalid argument exception during master's message deserializatio! Err: " +
                                  std::string(exception.what()));
 
             } catch (std::system_error &e) {
-                console.LogError(e.what());
+                console.LogError("System Error during master's message deserialization! Err: " + std::string(e.what()));
             } catch (...) {
-                console.LogError("Unknown error when creating MessageFromMaster");
+                console.LogError("Unknown error deserializing master's message");
                 continue;
             }
         }
@@ -225,6 +229,12 @@ class Communicator {
             return { *reinterpret_cast<RType *>(buffer.data()), ec };
         }
     }
+
+    /**
+     * @brief send a boolean value to master to acknowledge the operation
+     * @param confirm_ok positive logic, true if confirm
+     * @return
+     */
     bool ConfirmOperation(bool confirm_ok) noexcept
     {
         std::array<Byte, 2> buffer{ MessageType::Confirmation };
