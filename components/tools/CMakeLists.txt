@@ -14,6 +14,7 @@ if (${C_COMPILE_FLAGS} STREQUAL "")
     message(ERROR "No compile flags set for C files!")
 endif ()
 
+target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
+)
 
-set_source_files_properties(${SRCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
 

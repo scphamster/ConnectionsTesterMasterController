@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esp_logger.hpp"
+
 class ResetReasonNotifier {
   public:
     enum class RR {
@@ -39,5 +41,5 @@ class ResetReasonNotifier {
     }
 
   private:
-    SmartLogger console{ "ResetReason", ProjCfg::EnableLogForComponent::ResetReason };
+    Logger console{ "ResetReason", ProjCfg::EnableLogForComponent::ResetReason };
 };

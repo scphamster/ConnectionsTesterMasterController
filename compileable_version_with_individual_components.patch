@@ -1,0 +1,251 @@
+Subject: [PATCH] compileable version with individual components
+---
+Index: CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -15,6 +15,7 @@
+ #message("mydebug: PATH is " $ENV{PATH})
+ 
+ set(CXX_COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast -fexceptions")
++set(CXX_COMPILE_OPTIONS -Wall -fconcepts -std=c++2a -Ofast -fexceptions)
+ set(C_COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")
+ 
+ 
+Index: components/bluetooth/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/bluetooth/CMakeLists.txt b/components/bluetooth/CMakeLists.txt
+--- a/components/bluetooth/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/bluetooth/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -24,5 +24,7 @@
+                        )
+ 
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+ set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS ${C_COMPILE_FLAGS})
+\ No newline at end of file
+Index: components/cmd_interpreter/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/cmd_interpreter/CMakeLists.txt b/components/cmd_interpreter/CMakeLists.txt
+--- a/components/cmd_interpreter/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/cmd_interpreter/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -6,4 +6,6 @@
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES}
+                        REQUIRES queue logger)
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/gpio/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/gpio/CMakeLists.txt b/components/gpio/CMakeLists.txt
+--- a/components/gpio/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/gpio/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -6,4 +6,6 @@
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES}
+                        REQUIRES tools)
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/io_board/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/io_board/CMakeLists.txt b/components/io_board/CMakeLists.txt
+--- a/components/io_board/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/io_board/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -11,5 +11,5 @@
+                         REQUIRES task queue tools mutex semaphore i2c bluetooth gpio cmd_interpreter communicator
+                        )
+ 
+-target_compile_options(${COMPONENT_LIB} PUBLIC -std=c++2a)
+-set_source_files_properties(${SORCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
+Index: components/logger/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/logger/CMakeLists.txt b/components/logger/CMakeLists.txt
+--- a/components/logger/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/logger/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -8,4 +8,6 @@
+                        mutex
+                        task)
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/mutex/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/mutex/CMakeLists.txt b/components/mutex/CMakeLists.txt
+--- a/components/mutex/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/mutex/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -5,4 +5,10 @@
+ 
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES})
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++#if (not DEFINED CXX_COMPILE_OPTIONS)
++#    message(FATAL_ERROR "No compile options set for component: ${COMPONENT_LIB}")
++#endif ()
++
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/mutex/my_mutex.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/mutex/my_mutex.cpp b/components/mutex/my_mutex.cpp
+--- a/components/mutex/my_mutex.cpp	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/mutex/my_mutex.cpp	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -1,7 +1,8 @@
++#include <mutex>
++
+ #include "freertos/FreeRTOS.h"
+ #include "freertos/semphr.h"
+ #include "my_mutex.hpp"
+-
+ class Mutex::MutexImpl {
+   public:
+     MutexImpl()
+Index: components/proj_cfg/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/proj_cfg/CMakeLists.txt b/components/proj_cfg/CMakeLists.txt
+--- a/components/proj_cfg/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/proj_cfg/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -10,5 +10,7 @@
+                        )
+ 
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+ set_source_files_properties(${C_SOURCES} PROPERTIES COMPILE_FLAGS ${C_COMPILE_FLAGS})
+\ No newline at end of file
+Index: components/queue/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/queue/CMakeLists.txt b/components/queue/CMakeLists.txt
+--- a/components/queue/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/queue/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -7,4 +7,6 @@
+                        REQUIRES semaphore
+                        mutex)
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/semaphore/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/semaphore/CMakeLists.txt b/components/semaphore/CMakeLists.txt
+--- a/components/semaphore/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/semaphore/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -5,4 +5,6 @@
+ 
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES})
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
++
+Index: components/task/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/task/CMakeLists.txt b/components/task/CMakeLists.txt
+--- a/components/task/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/task/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -6,4 +6,5 @@
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES}
+                        REQUIRES freertos)
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
+Index: components/timer/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/timer/CMakeLists.txt b/components/timer/CMakeLists.txt
+--- a/components/timer/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/timer/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -5,4 +5,5 @@
+ 
+ idf_component_register(SRCS ${CXX_SOURCES} INCLUDE_DIRS ${INCLUDES})
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
+Index: components/tools/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/tools/CMakeLists.txt b/components/tools/CMakeLists.txt
+--- a/components/tools/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/components/tools/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -14,6 +14,7 @@
+     message(ERROR "No compile flags set for C files!")
+ endif ()
+ 
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
+ 
+-set_source_files_properties(${SRCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
+ 
+Index: main/CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+--- a/main/CMakeLists.txt	(revision 7e651af4ab5b641a067b6ef84f0ed81bddf8883b)
++++ b/main/CMakeLists.txt	(revision 9c222bce2faa469a19d04ee7c9d938a5ba3cf129)
+@@ -15,5 +15,6 @@
+     message(ERROR "No compile flags set for C files!")
+ endif ()
+ 
+-set_source_files_properties(${CXX_SOURCES} PROPERTIES COMPILE_FLAGS ${CXX_COMPILE_FLAGS})
++target_compile_options(${COMPONENT_LIB} PUBLIC -Wall -fconcepts -std=c++2a -Ofast -fexceptions
++)
+ 
