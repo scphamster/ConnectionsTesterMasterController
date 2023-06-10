@@ -28,6 +28,9 @@ class Communicator {
                  std::shared_ptr<FromMasterQ>      fromMasterQ) noexcept
       : masterIP{ std::move(ip_addr) }
       , currentSocketPort{ port_num }
+      , io_context{ std::make_shared<asio::io_context>() }
+      , socket{ std::make_shared<asio::ip::tcp::socket>(*io_context) }
+      , endpoint{ std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort) }
       , toMasterSB{ std::move(toMasterSB) }
       , fromMasterCommandsQ{ std::move(fromMasterQ) }
       , writeTask([this]() { WriteTask(); },
@@ -46,28 +49,35 @@ class Communicator {
 
     void run() noexcept
     {
-        io_context = std::make_shared<asio::io_context>();
-        socket     = std::make_shared<asio::ip::tcp::socket>(*io_context);
+        auto working_port = ObtainWorkingPortNumberBlocking();
 
-        auto working_port = ObtainWorkingPortNumber();
-
-        if (not working_port) {
-            console.LogError("Failed to retrieve port number!");
-            std::terminate();
+        if (working_port == std::nullopt) {
+            console.OnFatalErrorTermination("Working port is null!");
         }
 
-        console.Log("Working port: " + std::to_string(*working_port));
+        currentSocketPort = *working_port;
+
+        console.Log("Working port: " + std::to_string(currentSocketPort));
         ConfirmOperation(true);
 
+        socket->shutdown(asio::socket_base::shutdown_type::shutdown_both);
         socket->close();
-        currentSocketPort = *working_port;
-        endpoint          = std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort);
-        auto err_code     = asio::error_code();
 
-        try {
-            socket->connect(*endpoint, err_code);
-        } catch (asio::system_error &err) {
-            console.OnFatalErrorTermination("error upon connection: " + err.code().message());
+        endpoint      = std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort);
+        auto err_code = asio::error_code();
+
+        while (true) {
+            try {
+                socket->connect(*endpoint, err_code);
+            } catch (asio::system_error &err) {
+                console.OnFatalErrorTermination("error upon connection: " + err.code().message());
+                continue;
+            } catch (...) {
+                console.LogError("Unexpected error caught while connecting to working port: " + currentSocketPort);
+                continue;
+            }
+
+            break;
         }
 
         if (!err_code) {
@@ -157,9 +167,8 @@ class Communicator {
         }
     }
 
-    std::optional<PortNumT> ObtainWorkingPortNumber() noexcept
+    std::optional<PortNumT> ObtainWorkingPortNumberBlocking() noexcept
     {
-        endpoint      = std::make_shared<asio::ip::tcp::endpoint>(masterIP, currentSocketPort);
         auto err_code = asio::error_code();
 
         while (true) {
@@ -172,6 +181,13 @@ class Communicator {
             } catch (...) {
                 console.LogError("Unknown error during port obtainment");
                 std::terminate();
+            }
+
+            if (err_code) {
+                console.LogError("Error during standard port connection: " + err_code.message());
+                Task::DelayMs(1000);
+                socket->close();
+                continue;
             }
 
             socketIsConnected = true;
