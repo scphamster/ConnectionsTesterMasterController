@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../../../../../../Libraries/esp32/tools/tools/xtensa-esp32-elf/esp-2021r2-patch5-8.4.0/xtensa-esp32-elf/xtensa-esp32-elf/include/c++/8.4.0/memory"
-#include "../../../../../../Libraries/esp32/tools/tools/xtensa-esp32-elf/esp-2021r2-patch5-8.4.0/xtensa-esp32-elf/xtensa-esp32-elf/include/c++/8.4.0/functional"
-#include "../../../../../../Libraries/esp32/tools/tools/xtensa-esp32-elf/esp-2021r2-patch5-8.4.0/xtensa-esp32-elf/xtensa-esp32-elf/include/c++/8.4.0/type_traits"
+#include <memory>
+#include <functional>
+#include <type_traits>
 
-#include "../../../../../../Libraries/esp32/esp-idf-v4.4.3/components/freertos/include/freertos/FreeRTOS.h"
-#include "../../../../../../Libraries/esp32/esp-idf-v4.4.3/components/freertos/include/freertos/semphr.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 class Semaphore {
   public:

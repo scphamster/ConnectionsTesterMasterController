@@ -89,11 +89,14 @@ class StreamBuffer {
     {
         xStreamBufferSend(handle, buffer.data(), sizeof(buffer), timeout);
     }
+
     void Send(ItemType &&buffer, TimeoutMsec timeout) noexcept
     {
         xStreamBufferSend(handle, &buffer, sizeof(buffer), timeout);
     }
+
     bool Reset() const noexcept { return (xStreamBufferReset(handle) == pdPASS) ? true : false; }
+
     template<typename T>
     BaseType_t SendFromISR(T &&buffer) noexcept
     {
@@ -108,6 +111,7 @@ class StreamBuffer {
         xStreamBufferReceive(handle, &buffer, sizeof(buffer), timeout);
         return buffer;
     }
+
     template<size_t NumberOfItems>
     std::array<ItemType, NumberOfItems> Receive(TimeoutMsec timeout) noexcept
     {
@@ -115,9 +119,9 @@ class StreamBuffer {
         auto                                received_number_of_bytes =
           xStreamBufferReceive(handle, buffer.data(), buffer.size() * sizeof(ItemType), timeout);
 
-        //        configASSERT(buffer.size() * sizeof(ItemType) == received_number_of_bytes);
         return buffer;
     }
+
     template<size_t NumberOfItems>
     std::array<ItemType, NumberOfItems> ReceiveBlocking(TimeoutMsec timeout) noexcept
     {
@@ -136,6 +140,9 @@ class StreamBuffer {
     StreamBufferHandle_t handle;
 };
 
+/**
+ * @brief StreamBuffer specifically designed for std::vector<Byte> transfers
+ */
 class ByteStreamBuffer {
   public:
     using TimeoutMsec = portTickType;

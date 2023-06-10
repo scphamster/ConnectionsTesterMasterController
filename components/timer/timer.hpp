@@ -1,7 +1,7 @@
 #pragma once
 #include <functional>
-#include "FreeRTOS/FreeRTOS.h"
-#include "FreeRTOS/timers.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 
 class TimerFreeRTOS {
   public:
