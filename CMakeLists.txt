@@ -7,12 +7,7 @@ cmake_minimum_required(VERSION 3.5)
 set(USE_COMPILER_EXECUTABLE_AS_LINKER TRUE)
 set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/common_components/protocol_examples_common)
 
-#list(PREPEND $ENV{PATH} $ENV{IDF_DUPA})
-#message("mydebug: IDF_DUPA is " $ENV{IDF_DUPA})
-#message("mydebug: IDF_PATH is " $ENV{IDF_PATH})
-
-#set(ENV{PATH} "$ENV{IDF_DUPA} $ENV{PATH}")
-#message("mydebug: PATH is " $ENV{PATH})
+message(INFO " my path is $ENV{PATH}")
 
 set(CXX_COMPILE_FLAGS "-Wall -fconcepts -std=c++2a -Ofast -fexceptions")
 set(C_COMPILE_FLAGS "-Wall -std=gnu11 -Ofast")

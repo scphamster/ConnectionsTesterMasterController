@@ -12,6 +12,12 @@ class Application {
     static void Run() noexcept { _this = std::shared_ptr<Application>(new Application()); }
 
   protected:
+
+    /**
+     * @brief Initialize file system and connect to the host phone via WIFI using credentials
+     *        in the sdkconfig.default
+     *
+     */
     void Initialize() noexcept
     {
         esp_err_t ret = nvs_flash_init();
@@ -76,7 +82,7 @@ class Application {
                                                                             } } };
         auto serialized = msg_to_master.Serialize();
 
-        auto ack = Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize();
+        auto ack      = Confirmation(Confirmation::Answer::CommandAcknowledge).Serialize();
         auto cmd_good = Confirmation(Confirmation::Answer::CommandPerformanceSuccess).Serialize();
 
         while (true) {

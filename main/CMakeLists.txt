@@ -36,8 +36,8 @@ set(CXX_SOURCES
     ${COMPONENTS_DIR}/cpp_wrappers/logger/esp_logger.hpp
     ${COMPONENTS_DIR}/cpp_wrappers/logger/esp_logger.cpp
 
-    ${COMPONENTS_DIR}/cpp_wrappers/i2c/IIC.cpp
-    ${COMPONENTS_DIR}/cpp_wrappers/i2c/IIC.hpp
+    ${COMPONENTS_DIR}/cpp_wrappers/i2c/iic.cpp
+    ${COMPONENTS_DIR}/cpp_wrappers/i2c/iic.hpp
 
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/task/task.hpp
     ${COMPONENTS_DIR}/freertos_cpp_wrappers/task/task.cpp

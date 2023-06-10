@@ -9,7 +9,7 @@
 #include <optional>
 #include <mutex>
 
-#include "FreeRTOS/FreeRTOS.h"
+#include "freertos/FreeRTOS.h"
 #include "driver/i2c.h"
 #include "esp_logger.hpp"
 #include "my_mutex.hpp"
