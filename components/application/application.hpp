@@ -64,7 +64,7 @@ class Application {
         ConnectWireless();
 
         auto fromMasterMsgQ = std::make_shared<Queue<MessageFromMaster>>(10);
-        auto toMasterSB     = std::make_shared<ByteStreamBuffer>(256);
+        auto toMasterSB     = std::make_shared<ByteStreamBuffer>(2048);
 
         communicator = std::make_shared<Comm>(masterIP, ProjCfg::Socket::EntryPortNumber, toMasterSB, fromMasterMsgQ);
         communicator->run();
@@ -122,13 +122,16 @@ class Application {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
                 console.Log("FromMasterCMD: MeasureAll");
 
-                auto result = apparatus->MeasureAll();
-                if (result == std::nullopt) {
+                auto measured_voltages = apparatus->MeasureAll();
+
+                if (measured_voltages == std::nullopt) {
                     to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandPerformanceFailure).Serialize());
                     continue;
                 }
                 else {
-                    to_master_sb->Send(result->Serialize());
+                    console.Log("Measured All voltages, sending to master!");
+                    auto send_result = to_master_sb->Send(measured_voltages->Serialize());
+                    console.Log("All voltages send success?: " + std::to_string(send_result));
                 }
             } break;
             case ID::CheckConnections: {
