@@ -57,7 +57,7 @@ enum class EnableLogForComponent : bool {
     BluetoothSPP       = false,
     BluettothMain      = false,
     CommandInterpreter = false,
-    Socket             = false,
+    Socket             = true,
     ResetReason        = true
 };
 enum Log {
