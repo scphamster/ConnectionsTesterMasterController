@@ -25,7 +25,7 @@ class Application {
     static void Run() noexcept { _this = std::shared_ptr<Application>(new Application()); }
 
   protected:
-    void Initialize() noexcept
+    static void Initialize() noexcept
     {
         esp_err_t ret = nvs_flash_init();
         if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -115,7 +115,7 @@ class Application {
                     console.Log(std::to_string(counter) + ":" + std::to_string(byte));
                     counter++;
                 }
-                to_master_sb->Send(std::move(bytes));
+                to_master_sb->Send(bytes);
                 console.Log("CMT: response with boards sent!");
             } break;
             case ID::MeasureAll: {
@@ -148,7 +148,7 @@ class Application {
             } break;
             case ID::DataLinkKeepAlive: {
                 to_master_sb->Send(KeepAlive().Serialize());
-                console.Log("Keepalive");
+                console.Log("KeepAlive message from master, sending keepalive back!");
             } break;
             case ID::EnableOutputForPin: {
                 to_master_sb->Send(CommandStatus(CommandStatus::Answer::CommandAcknowledge).Serialize());
@@ -167,6 +167,8 @@ class Application {
     }
 
   private:
+    Application() = default;
+
     static std::shared_ptr<Application> _this;
 
     Logger console{ "Main", ProjCfg::EnableLogForComponent::Main };
