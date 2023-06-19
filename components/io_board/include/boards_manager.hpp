@@ -50,7 +50,7 @@ class Apparatus {
         return _this;
     }
 
-    [[nodiscard]] bool                                    BoardsSearchPerformed() const noexcept { return boardsSearchPerformed; }
+    [[nodiscard]] bool                      BoardsSearchPerformed() const noexcept { return boardsSearchPerformed; }
     std::optional<std::vector<Board::Info>> GetBoards(bool perform_rescan = false) noexcept
     {
         if (perform_rescan) {
@@ -312,7 +312,7 @@ class Apparatus {
 
         auto master_pin =
           PinDescriptor{ board->GetAddress(), static_cast<Byte>(Board::GetHarnessPinNumFromLogicPinNum(pin)) };
-        std::vector<ConnectionData> cons{};
+        std::vector<ConnectionData> connections{};
 
         for (const auto &voltage_table_from_board : *voltage_tables_from_all_boards) {
             std::string board_affinity = std::to_string(voltage_table_from_board.boardAddress);
@@ -348,7 +348,7 @@ class Apparatus {
                                                 std::to_string(voltage) + ") ");
                     }
 
-                    cons.emplace_back(ConnectionData{
+                    connections.emplace_back(ConnectionData{
                       PinDescriptor{ voltage_table_from_board.boardAddress, static_cast<Byte>(harness_pin_id) },
                       voltage });
                 }
@@ -361,7 +361,7 @@ class Apparatus {
 
         console.Log(answer_to_master);
 
-        if (not socket->GetToMasterSB()->Send(PinConnectivity(std::move(master_pin), std::move(cons)).Serialize())) {
+        if (not socket->GetToMasterSB()->Send(PinConnectivity(master_pin, std::move(connections)).Serialize())) {
             console.LogError("Unsuccessful send to streambuffer! Pin: " + std::to_string(board->GetAddress()) + ":" +
                              std::to_string(pin));
         }
